@@ -4,7 +4,7 @@
 # Publish: ansible-galaxy collection publish ./rachlenko-linux_aibolit-*.tar.gz --api-key <KEY>
 namespace: rachlenko
 name: linux_aibolit
-version: 1.0.0
+version: 1.0.1
 readme: README.md
 
 authors:
@@ -35,10 +35,10 @@ tags:
 
 dependencies: {}
 
-repository: https://github.com/rachlenko/doctor-linux-aibolit
-documentation: https://github.com/rachlenko/doctor-linux-aibolit/blob/main/README.md
-homepage: https://github.com/rachlenko/doctor-linux-aibolit
-issues: https://github.com/rachlenko/doctor-linux-aibolit/issues
+repository: https://github.com/rachlenko/linux_aibolit
+documentation: https://github.com/rachlenko/linux_aibolit/blob/main/README.md
+homepage: https://github.com/rachlenko/linux_aibolit
+issues: https://github.com/rachlenko/linux_aibolit/issues
 
 # Keep the local development harness and CI scaffolding out of the published
 # artifact — only roles/, playbooks/, docs/, meta/ and the changelog ship.
@@ -48,9 +48,14 @@ build_ignore:
   - .gitignore
   - .ansible-lint
   - .yamllint
+  - .ansible
+  - .cache
+  - .pytest_cache
+  - dist
   - molecule
   - reports
   - tests/output
+  - changelogs/.plugin-cache.yaml
   - ansible.cfg
   - inventory.ini
   - site.yml

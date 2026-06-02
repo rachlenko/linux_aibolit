@@ -1,6 +1,17 @@
 ---
 ancestor: null
 releases:
+  1.0.1:
+    release_date: "2026-06-02"
+    changes:
+      bugfixes:
+        - Correct the repository, documentation, homepage and issues URLs in
+          galaxy.yml to point at github.com/rachlenko/linux_aibolit (the previous
+          links pointed at a non-existent doctor-linux-aibolit repository).
+      minor_changes:
+        - Expand build_ignore to keep local development and cache directories
+          (.ansible, .cache, .pytest_cache, dist, changelogs/.plugin-cache.yaml)
+          out of the published artifact.
   1.0.0:
     release_date: "2026-06-02"
     changes:
