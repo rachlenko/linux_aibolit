@@ -1,0 +1,30 @@
+---
+# Drives one module through the contract:
+#   load catalog -> collect (optional) -> scalar engine -> analyze (optional)
+- name: "[{{ doctor_module }}] discover optional module files"
+  ansible.builtin.stat:
+    path: "{{ role_path }}/modules/{{ doctor_module }}/{{ item }}"
+  loop:
+    - collect.yml
+    - analyze.yml
+  register: doctor_module_files
+  delegate_to: localhost
+  become: false
+  changed_when: false
+
+- name: "[{{ doctor_module }}] load catalog"
+  ansible.builtin.include_vars:
+    file: "{{ role_path }}/modules/{{ doctor_module }}/catalog.yml"
+  # catalog.yml defines `module_catalog` (a list of scalar check dicts).
+
+- name: "[{{ doctor_module }}] collect raw facts"
+  ansible.builtin.include_tasks: "{{ role_path }}/modules/{{ doctor_module }}/collect.yml"
+  when: doctor_module_files.results[0].stat.exists
+
+- name: "[{{ doctor_module }}] evaluate scalar catalog"
+  ansible.builtin.include_tasks: engine_scalar.yml
+  when: module_catalog | default([]) | length > 0
+
+- name: "[{{ doctor_module }}] dynamic per-item analysis"
+  ansible.builtin.include_tasks: "{{ role_path }}/modules/{{ doctor_module }}/analyze.yml"
+  when: doctor_module_files.results[1].stat.exists

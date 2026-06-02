@@ -1,0 +1,57 @@
+---
+# Ansible Galaxy collection manifest.
+# Build:   ansible-galaxy collection build
+# Publish: ansible-galaxy collection publish ./rachlenko-linux_aibolit-*.tar.gz --api-key <KEY>
+namespace: rachlenko
+name: linux_aibolit
+version: 1.0.0
+readme: README.md
+
+authors:
+  - Evgeny Rachlenko (https://github.com/rachlenko)
+
+description: >-
+  Dr. Aibolit for Linux — a read-only configuration "doctor" that audits kernel,
+  network, storage, filesystem, CPU, performance tuning and limits (plus opt-in
+  PostgreSQL / MySQL / Oracle / Ceph component modules) against general-purpose
+  server best practices and renders a self-contained, colour-coded HTML report
+  per host on the control node. It never mutates the target.
+
+license:
+  - MIT
+
+# Galaxy tags must be lowercase alphanumeric (no spaces, hyphens or underscores).
+tags:
+  - linux
+  - audit
+  - sysctl
+  - performance
+  - hardening
+  - postgresql
+  - ceph
+  - system
+  - monitoring
+  - readonly
+
+dependencies: {}
+
+repository: https://github.com/rachlenko/doctor-linux-aibolit
+documentation: https://github.com/rachlenko/doctor-linux-aibolit/blob/main/README.md
+homepage: https://github.com/rachlenko/doctor-linux-aibolit
+issues: https://github.com/rachlenko/doctor-linux-aibolit/issues
+
+# Keep the local development harness and CI scaffolding out of the published
+# artifact — only roles/, playbooks/, docs/, meta/ and the changelog ship.
+build_ignore:
+  - .github
+  - .git
+  - .gitignore
+  - .ansible-lint
+  - .yamllint
+  - molecule
+  - reports
+  - tests/output
+  - ansible.cfg
+  - inventory.ini
+  - site.yml
+  - "*.tar.gz"

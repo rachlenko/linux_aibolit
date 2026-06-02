@@ -1,0 +1,46 @@
+---
+# Lightweight scenario: the doctor is read-only and renders on the controller,
+# so we audit the local controller itself instead of spinning up a container.
+role_name_check: 1
+
+dependency:
+  name: galaxy
+  options:
+    requirements-file: requirements.yml
+
+driver:
+  name: default
+  options:
+    managed: false
+    ansible_connection_options:
+      ansible_connection: local
+
+platforms:
+  - name: localhost
+
+provisioner:
+  name: ansible
+  log: true
+  config_options:
+    defaults:
+      interpreter_python: auto_silent
+  inventory:
+    hosts:
+      all:
+        hosts:
+          localhost:
+            ansible_connection: local
+            ansible_python_interpreter: "{{ ansible_playbook_python }}"
+
+verifier:
+  name: ansible
+
+scenario:
+  # The audit is read-only but intentionally re-renders the HTML report on every
+  # run, so the idempotence phase is not meaningful and is omitted.
+  test_sequence:
+    - dependency
+    - create
+    - converge
+    - verify
+    - destroy

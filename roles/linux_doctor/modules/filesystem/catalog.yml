@@ -1,0 +1,3 @@
+---
+# Filesystem checks are per-mount and dynamic; see analyze.yml.
+module_catalog: []

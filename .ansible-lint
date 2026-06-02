@@ -1,0 +1,31 @@
+---
+# ansible-lint configuration for the rachlenko.linux_aibolit collection.
+
+exclude_paths:
+  - .github/
+  - .cache/
+  - reports/
+  - tests/output/
+  - changelogs/
+
+skip_list:
+  # The audit deliberately uses a flat, dotted fact namespace (doctor_facts
+  # keyed by e.g. "vm.swappiness") and short doctor_* public variables, so the
+  # role-prefix naming rule does not apply.
+  - var-naming[no-role-prefix]
+  # Module task names are intentionally prefixed with "[{{ doctor_module }}]" so
+  # per-module output is identifiable in long audit runs.
+  - name[template]
+  # Dynamic per-item evaluation tasks are named after the entry under test.
+  - name[casing]
+  # The single dense status-mapping expression in eval_row.yml is the heart of
+  # the engine; keeping it inline (rather than exploded) is deliberate.
+  - jinja[spacing]
+
+warn_list:
+  # Component collectors must read live config with shell pipelines
+  # (grep/sed over postgresql.conf etc.); these are read-only and intentional.
+  - command-instead-of-shell
+  - risky-shell-pipe
+  - no-changed-when
+  - yaml[line-length]

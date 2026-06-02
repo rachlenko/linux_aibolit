@@ -1,0 +1,10 @@
+---
+- name: "[storage] enumerate block devices"
+  ansible.builtin.command: ls -1 /sys/block
+  register: _blk
+  failed_when: false
+  changed_when: false
+
+- name: "[storage] select real disks (drop loop/ram/dm/zram/sr/fd)"
+  ansible.builtin.set_fact:
+    doctor_disks: "{{ _blk.stdout_lines | default([]) | reject('match', '^(loop|ram|sr|fd|zram|dm-|nbd|md)') | list }}"

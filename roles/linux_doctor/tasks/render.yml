@@ -1,0 +1,22 @@
+---
+# Renders the per-host HTML report on the CONTROL node. Nothing is written on
+# the target.
+- name: Ensure report directory exists on the control node
+  ansible.builtin.file:
+    path: "{{ doctor_report_dir }}"
+    state: directory
+    mode: "0755"
+  delegate_to: localhost
+  become: false
+
+- name: Render {{ inventory_hostname }}.html
+  ansible.builtin.template:
+    src: report.html.j2
+    dest: "{{ doctor_report_dir }}/{{ inventory_hostname }}.html"
+    mode: "0644"
+  delegate_to: localhost
+  become: false
+
+- name: Report written
+  ansible.builtin.debug:
+    msg: "Report: {{ doctor_report_dir }}/{{ inventory_hostname }}.html"

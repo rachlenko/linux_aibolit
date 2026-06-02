@@ -1,0 +1,45 @@
+---
+# Builds and publishes the collection to Ansible Galaxy when a v* tag is pushed.
+#
+# One-time setup: create an API token at https://galaxy.ansible.com (Preferences
+# -> API key) and store it as the GALAXY_API_KEY repository secret.
+#
+#   git tag v1.0.0 && git push origin v1.0.0
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  publish:
+    name: Build & publish to Galaxy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install "ansible-core>=2.15"
+
+      - name: Verify the tag matches galaxy.yml version
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          file="$(grep -E '^version:' galaxy.yml | awk '{print $2}')"
+          if [ "$tag" != "$file" ]; then
+            echo "::error::Tag v$tag does not match galaxy.yml version $file"
+            exit 1
+          fi
+
+      - name: Build collection
+        run: ansible-galaxy collection build --output-path ./dist
+
+      - name: Publish to Ansible Galaxy
+        run: ansible-galaxy collection publish ./dist/*.tar.gz --api-key "${{ secrets.GALAXY_API_KEY }}"
+
+      - name: Attach artifact to the GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ./dist/*.tar.gz

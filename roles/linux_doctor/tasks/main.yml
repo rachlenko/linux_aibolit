@@ -1,0 +1,15 @@
+---
+# Per host: collect -> analyze -> render -> write-to-control-node.
+- name: Initialise accumulators
+  ansible.builtin.set_fact:
+    doctor_facts: {}
+    doctor_results: []
+
+- name: Run each enabled module
+  ansible.builtin.include_tasks: run_module.yml
+  loop: "{{ doctor_modules + doctor_extra_modules }}"
+  loop_control:
+    loop_var: doctor_module
+
+- name: Render the per-host report on the control node
+  ansible.builtin.include_tasks: render.yml

@@ -1,0 +1,28 @@
+---
+- name: Verify
+  hosts: all
+  gather_facts: false
+  vars:
+    _reports: "{{ lookup('env', 'MOLECULE_EPHEMERAL_DIRECTORY') }}/reports"
+  tasks:
+    - name: A report was rendered for this host on the controller
+      ansible.builtin.stat:
+        path: "{{ _reports }}/{{ inventory_hostname }}.html"
+      register: _report
+      delegate_to: localhost
+
+    - name: Read it back
+      ansible.builtin.slurp:
+        src: "{{ _reports }}/{{ inventory_hostname }}.html"
+      register: _raw
+      delegate_to: localhost
+      when: _report.stat.exists
+
+    - name: Report exists and looks like a doctor report
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - _report.stat.exists
+          - (_raw.content | b64decode) is search('Linux Conf Doctor')
+          - (_raw.content | b64decode) is search('PostgreSQL')
+        fail_msg: "Molecule converge did not produce a valid report."

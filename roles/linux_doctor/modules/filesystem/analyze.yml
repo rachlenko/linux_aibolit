@@ -1,0 +1,20 @@
+---
+- name: "[filesystem] analyse each mount"
+  ansible.builtin.include_tasks: _mount.yml
+  loop: "{{ doctor_mounts | default([]) }}"
+  loop_control:
+    loop_var: mount
+    label: "{{ mount.mount }}"
+
+- name: "[filesystem] /tmp backing store"
+  ansible.builtin.include_tasks: "{{ role_path }}/tasks/eval_row.yml"
+  vars:
+    entry:
+      module: filesystem
+      category: Filesystem / tmp
+      key: filesystem.tmp_tmpfs
+      label: /tmp on tmpfs
+      rule: info
+      recommended: "tmpfs (optional)"
+      current: "{{ 'tmpfs' if ('/tmp' in (doctor_tmpfs_mounts | default([]))) else 'disk-backed' }}"
+      rationale: "tmpfs /tmp avoids disk wear and is cleared on reboot; acceptable either way on servers with ample RAM."

@@ -1,0 +1,79 @@
+---
+# Self-guarding: detect Oracle via oratab / ORACLE_HOME / pmon. Only then read
+# the OS prerequisites. Inspects text config + OS only — never connects.
+- name: "[oracle] detect Oracle presence (read-only)"
+  ansible.builtin.shell: |
+    set +e
+    if grep -qsE '^[^#].*:.*:' /etc/oratab 2>/dev/null; then echo true; exit 0; fi
+    if [ -n "$ORACLE_HOME" ] && [ -d "$ORACLE_HOME" ]; then echo true; exit 0; fi
+    # Assemble the monitor-process pattern at runtime so the literal never
+    # appears contiguously here (otherwise pgrep -f matches this script itself).
+    pat=$(printf '%s' '_pmon'; printf '%s' '_')
+    if pgrep -f "$pat" >/dev/null 2>&1; then echo true; exit 0; fi
+    echo false
+  args:
+    executable: /bin/sh
+  register: _ora_detect
+  failed_when: false
+  changed_when: false
+
+- name: "[oracle] set detection flag"
+  ansible.builtin.set_fact:
+    doctor_oracle_detected: "{{ (_ora_detect.stdout | trim) == 'true' }}"
+
+- name: "[oracle] not detected — skip checks"
+  ansible.builtin.set_fact:
+    module_catalog: []
+    doctor_results: "{{ doctor_results + [_row] }}"
+  vars:
+    _row:
+      module: oracle
+      category: Oracle
+      key: oracle.detected
+      label: Oracle Database
+      current: not detected
+      recommended: "—"
+      status: grey
+      rationale: "No oratab entry, ORACLE_HOME or pmon process found; module skipped."
+  when: not doctor_oracle_detected
+
+- name: "[oracle] read OS prerequisites (only when detected)"
+  when: doctor_oracle_detected
+  block:
+    - name: "[oracle] read sysctl-sourced prerequisites"
+      ansible.builtin.include_tasks: "{{ role_path }}/tasks/collect_sysctl.yml"
+
+    - name: "[oracle] read oracle/grid user limits (read-only)"
+      ansible.builtin.shell: |
+        set +e
+        big=1073741816
+        files="/etc/security/limits.conf $(ls /etc/security/limits.d/*.conf 2>/dev/null)"
+        lim() {
+          grep -hE '^[^#]' $files 2>/dev/null | awk -v t="$1" -v it="$2" \
+            '($1=="oracle"||$1=="grid"||$1=="*") && ($2==t||$2=="-") && $3==it {v=$4} \
+             END{if(v!=""){sub(/unlimited/,"'"$big"'",v); print v}}'
+        }
+        echo "nofile_soft: \"$(lim soft nofile)\""
+        echo "nofile_hard: \"$(lim hard nofile)\""
+        echo "nproc_soft: \"$(lim soft nproc)\""
+        echo "nproc_hard: \"$(lim hard nproc)\""
+        echo "stack_soft: \"$(lim soft stack)\""
+        echo "memlock: \"$(lim soft memlock)\""
+      args:
+        executable: /bin/sh
+      register: _ora_lim
+      failed_when: false
+      changed_when: false
+
+    - name: "[oracle] register oracle-user limit facts"
+      ansible.builtin.set_fact:
+        doctor_facts: "{{ doctor_facts | combine(_ora_facts) }}"
+      vars:
+        _l: "{{ _ora_lim.stdout | from_yaml }}"
+        _ora_facts:
+          oracle.nofile_soft: "{{ _l.nofile_soft if (_l.nofile_soft | default('')) != '' else '__MISSING__' }}"
+          oracle.nofile_hard: "{{ _l.nofile_hard if (_l.nofile_hard | default('')) != '' else '__MISSING__' }}"
+          oracle.nproc_soft: "{{ _l.nproc_soft if (_l.nproc_soft | default('')) != '' else '__MISSING__' }}"
+          oracle.nproc_hard: "{{ _l.nproc_hard if (_l.nproc_hard | default('')) != '' else '__MISSING__' }}"
+          oracle.stack_soft: "{{ _l.stack_soft if (_l.stack_soft | default('')) != '' else '__MISSING__' }}"
+          oracle.memlock: "{{ _l.memlock if (_l.memlock | default('')) != '' else '__MISSING__' }}"

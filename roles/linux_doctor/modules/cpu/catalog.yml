@@ -1,0 +1,33 @@
+---
+module_catalog:
+  - key: cpu.governor
+    category: CPU / Frequency
+    label: CPU frequency governor
+    source: custom
+    rule: in_set
+    recommended: performance
+    green_set: [performance]
+    yellow_set: [schedutil, ondemand, powersave]
+    rationale: "'powersave' throttles a server's CPU; 'performance' keeps clocks high."
+
+  - key: cpu.count
+    category: CPU / System
+    label: Logical CPU count
+    source: custom
+    rule: info
+    rationale: "Context for storage queue-depth and concurrency recommendations."
+
+  - key: cpu.tuned_profile
+    category: CPU / System
+    label: Active tuned profile
+    source: custom
+    rule: info
+    rationale: "If tuned is managing this host, the active profile drives many knobs."
+
+  - key: cpu.time_sync
+    category: CPU / System
+    label: Time synchronised (NTP/chrony)
+    source: custom
+    rule: bool
+    recommended: true
+    rationale: "Servers must keep accurate time for logs, TLS, and clustering."

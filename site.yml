@@ -1,0 +1,12 @@
+---
+# Linux Conf Doctor — read-only configuration audit.
+# Produces one HTML report per host under reports/<hostname>.html on the
+# control node. Never mutates the target.
+- name: Linux Conf Doctor
+  hosts: all
+  gather_facts: true
+  # Read-only by default. Some config files need privilege; override per-run:
+  #   ansible-playbook site.yml -e doctor_become=true -K
+  become: "{{ doctor_become | default(false) }}"
+  roles:
+    - linux_doctor

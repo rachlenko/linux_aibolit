@@ -1,0 +1,25 @@
+---
+# Reusable collector: slurp every catalog entry whose source == 'sysctl' from
+# /proc/sys and merge the raw value into doctor_facts. Missing keys are simply
+# absent (the engine renders them grey). Never mutates the target.
+- name: "[{{ doctor_module }}] read sysctl-sourced values"
+  ansible.builtin.slurp:
+    src: "/proc/sys/{{ item.key | replace('.', '/') }}"
+  loop: "{{ module_catalog | selectattr('source', 'equalto', 'sysctl') | list }}"
+  loop_control:
+    label: "{{ item.key }}"
+  register: _sysctl_read
+  failed_when: false
+  changed_when: false
+
+- name: "[{{ doctor_module }}] merge sysctl facts"
+  ansible.builtin.set_fact:
+    doctor_facts: >-
+      {{ doctor_facts | combine({
+           item.item.key:
+             (item.content | b64decode | replace('\t', ' ') | regex_replace('\s+$', ''))
+         }) }}
+  loop: "{{ _sysctl_read.results }}"
+  loop_control:
+    label: "{{ item.item.key }}"
+  when: item.content is defined

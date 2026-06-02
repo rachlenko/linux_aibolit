@@ -1,0 +1,42 @@
+---
+galaxy_info:
+  role_name: linux_doctor
+  namespace: rachlenko
+  author: Evgeny Rachlenko
+  description: >-
+    Read-only Linux configuration audit ("Dr. Aibolit") that compares system and
+    component settings against server best practices and renders a colour-coded
+    HTML report per host on the control node. Never mutates the target.
+  company: ""
+  license: MIT
+  min_ansible_version: "2.15"
+
+  platforms:
+    - name: EL
+      versions:
+        - "8"
+        - "9"
+    - name: Fedora
+      versions:
+        - all
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+        - noble
+
+  galaxy_tags:
+    - linux
+    - audit
+    - sysctl
+    - performance
+    - hardening
+    - postgresql
+    - ceph
+    - readonly
+
+dependencies: []

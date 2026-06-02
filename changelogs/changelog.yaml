@@ -1,0 +1,13 @@
+---
+ancestor: null
+releases:
+  1.0.0:
+    release_date: "2026-06-02"
+    changes:
+      release_summary: >-
+        Initial public release of the rachlenko.linux_aibolit collection. Ships
+        the read-only linux_doctor audit role with a declarative catalog rule
+        engine (max / min / equals / in_set / bool / info), system modules
+        (kernel, network, storage, filesystem, cpu, perftune, limits) and opt-in
+        component modules (postgres, mysql, oracle, ceph). Renders a colour-coded
+        HTML report per host on the control node and never mutates the target.

@@ -1,0 +1,130 @@
+---
+# Self-guarding: detect Ceph via ceph.conf / running daemons / ceph binary.
+# Parses ceph.conf (accepting both 'osd_pool_default_size' and the legacy
+# 'osd pool default size' spelling) plus OS cross-references. Reads config and
+# /proc only — never connects to the cluster.
+- name: "[ceph] detect and parse configuration (read-only)"
+  ansible.builtin.shell: |
+    set +e
+    conf=/etc/ceph/ceph.conf
+    detected=false
+    [ -f "$conf" ] && detected=true
+    for d in ceph-osd ceph-mon ceph-mgr; do pgrep -x "$d" >/dev/null 2>&1 && detected=true; done
+    command -v ceph >/dev/null 2>&1 && detected=true
+    if [ "$detected" != true ]; then echo "detected: false"; exit 0; fi
+
+    get() {
+      [ -f "$conf" ] || return
+      k=$(printf '%s' "$1" | sed 's/_/[ _]/g')
+      grep -hiE "^[[:space:]]*$k[[:space:]]*=" "$conf" 2>/dev/null | tail -1 \
+        | sed -E "s/^[^=]*=[[:space:]]*//; s/[[:space:]]*#.*$//; s/[[:space:]]*$//"
+    }
+    to_bytes() {
+      v=$(printf '%s' "$1" | tr 'A-Z' 'a-z' | tr -d ' b')
+      case "$v" in
+        '')        echo "";;
+        *ki)       echo $(( ${v%ki} * 1024 ));;
+        *mi)       echo $(( ${v%mi} * 1048576 ));;
+        *gi)       echo $(( ${v%gi} * 1073741824 ));;
+        *k)        echo $(( ${v%k} * 1000 ));;
+        *m)        echo $(( ${v%m} * 1000000 ));;
+        *g)        echo $(( ${v%g} * 1000000000 ));;
+        *[!0-9]*)  echo "";;
+        *)         echo "$v";;
+      esac
+    }
+
+    pub=$(get public_network); clu=$(get cluster_network)
+    iso=unset
+    if [ -n "$clu" ]; then [ "$clu" = "$pub" ] && iso=shared || iso=isolated; fi
+
+    swap=present; [ "$(awk 'NR>1' /proc/swaps 2>/dev/null | wc -l)" -eq 0 ] && swap=absent
+    thp=$(grep -oE '\[[a-z]+\]' /sys/kernel/mm/transparent_hugepage/enabled 2>/dev/null | tr -d '[]')
+    ts=$(timedatectl show -p NTPSynchronized --value 2>/dev/null)
+
+    pid=$(pgrep -x ceph-osd | head -1); [ -z "$pid" ] && pid=$(pgrep -x ceph-mon | head -1)
+    nofile=$(awk '/Max open files/{print $4}' "/proc/$pid/limits" 2>/dev/null)
+
+    nosd=$(ls -d /var/lib/ceph/osd/*/ 2>/dev/null | wc -l)
+    [ "$nosd" -eq 0 ] && nosd=$(pgrep -xc ceph-osd 2>/dev/null)
+
+    echo "detected: true"
+    echo "public_network: \"$pub\""
+    echo "cluster_network: \"$clu\""
+    echo "net_isolation: \"$iso\""
+    echo "osd_pool_default_size: \"$(get osd_pool_default_size)\""
+    echo "osd_pool_default_min_size: \"$(get osd_pool_default_min_size)\""
+    echo "auth_cluster_required: \"$(get auth_cluster_required)\""
+    echo "auth_service_required: \"$(get auth_service_required)\""
+    echo "auth_client_required: \"$(get auth_client_required)\""
+    echo "pg_autoscale_mode: \"$(get osd_pool_default_pg_autoscale_mode)\""
+    echo "osd_memory_target_bytes: \"$(to_bytes "$(get osd_memory_target)")\""
+    echo "mon_osd_full_ratio: \"$(get mon_osd_full_ratio)\""
+    echo "mon_osd_nearfull_ratio: \"$(get mon_osd_nearfull_ratio)\""
+    echo "mon_clock_drift_allowed: \"$(get mon_clock_drift_allowed)\""
+    echo "swap: \"$swap\""
+    echo "thp: \"$thp\""
+    echo "time_sync: \"$ts\""
+    echo "osd_nofile: \"$nofile\""
+    echo "num_osds: \"$nosd\""
+  args:
+    executable: /bin/sh
+  register: _ceph
+  failed_when: false
+  changed_when: false
+
+- name: "[ceph] parse probe output"
+  ansible.builtin.set_fact:
+    _cc: "{{ _ceph.stdout | from_yaml }}"
+
+- name: "[ceph] set detection flag"
+  ansible.builtin.set_fact:
+    doctor_ceph_detected: "{{ _cc.detected | bool }}"
+
+- name: "[ceph] not detected — skip checks"
+  ansible.builtin.set_fact:
+    module_catalog: []
+    doctor_results: "{{ doctor_results + [_row] }}"
+  vars:
+    _row:
+      module: ceph
+      category: Ceph
+      key: ceph.detected
+      label: Ceph
+      current: not detected
+      recommended: "—"
+      status: grey
+      rationale: "No ceph.conf, Ceph daemon or ceph binary found; module skipped."
+  when: not doctor_ceph_detected
+
+- name: "[ceph] gather facts (only when detected)"
+  when: doctor_ceph_detected
+  block:
+    - name: "[ceph] read sysctl-sourced prerequisites"
+      ansible.builtin.include_tasks: "{{ role_path }}/tasks/collect_sysctl.yml"
+
+    - name: "[ceph] register ceph facts"
+      ansible.builtin.set_fact:
+        doctor_ceph_num_osds: "{{ _cc.num_osds | default(0) | int }}"
+        doctor_facts: "{{ doctor_facts | combine(_ceph_facts) }}"
+      vars:
+        _mt: "{{ _cc.osd_memory_target_bytes | default('') }}"
+        _ts: "{{ (_cc.time_sync | default('') | lower) }}"
+        _ceph_facts:
+          ceph.public_network: "{{ _cc.public_network if (_cc.public_network | default('')) != '' else '__MISSING__' }}"
+          ceph.cluster_network: "{{ _cc.cluster_network if (_cc.cluster_network | default('')) != '' else '__MISSING__' }}"
+          ceph.net_isolation: "{{ _cc.net_isolation | default('unset') }}"
+          ceph.osd_pool_default_size: "{{ _cc.osd_pool_default_size if (_cc.osd_pool_default_size | default('')) != '' else '__MISSING__' }}"
+          ceph.osd_pool_default_min_size: "{{ _cc.osd_pool_default_min_size if (_cc.osd_pool_default_min_size | default('')) not in ['', '0'] else '__MISSING__' }}"
+          ceph.auth_cluster_required: "{{ _cc.auth_cluster_required if (_cc.auth_cluster_required | default('')) != '' else '__MISSING__' }}"
+          ceph.auth_service_required: "{{ _cc.auth_service_required if (_cc.auth_service_required | default('')) != '' else '__MISSING__' }}"
+          ceph.auth_client_required: "{{ _cc.auth_client_required if (_cc.auth_client_required | default('')) != '' else '__MISSING__' }}"
+          ceph.pg_autoscale_mode: "{{ _cc.pg_autoscale_mode if (_cc.pg_autoscale_mode | default('')) != '' else '__MISSING__' }}"
+          ceph.osd_memory_target: "{{ _mt if _mt != '' else '__MISSING__' }}"
+          ceph.mon_osd_full_ratio: "{{ _cc.mon_osd_full_ratio if (_cc.mon_osd_full_ratio | default('')) != '' else '__MISSING__' }}"
+          ceph.mon_osd_nearfull_ratio: "{{ _cc.mon_osd_nearfull_ratio if (_cc.mon_osd_nearfull_ratio | default('')) != '' else '__MISSING__' }}"
+          ceph.mon_clock_drift_allowed: "{{ _cc.mon_clock_drift_allowed if (_cc.mon_clock_drift_allowed | default('')) != '' else '__MISSING__' }}"
+          ceph.swap_off: "{{ _cc.swap | default('__MISSING__') }}"
+          ceph.os_thp: "{{ _cc.thp if (_cc.thp | default('')) != '' else '__MISSING__' }}"
+          ceph.time_sync: "{{ 'true' if _ts == 'yes' else ('false' if _ts == 'no' else '__MISSING__') }}"
+          ceph.osd_nofile: "{{ _cc.osd_nofile if (_cc.osd_nofile | default('')) != '' else '__MISSING__' }}"

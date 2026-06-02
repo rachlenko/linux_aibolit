@@ -1,0 +1,127 @@
+---
+module_catalog:
+  - key: vm.swappiness
+    category: Kernel / Memory
+    label: Swappiness
+    source: sysctl
+    rule: max
+    recommended: 10
+    yellow_max: 60
+    rationale: "High swappiness makes a server swap out hot pages; 1–10 favours RAM."
+
+  - key: vm.dirty_ratio
+    category: Kernel / Memory
+    label: Dirty ratio (%)
+    source: sysctl
+    rule: max
+    recommended: 20
+    yellow_max: 40
+    rationale: "Large dirty page caches cause big, latency-spiking writeback bursts."
+
+  - key: vm.dirty_background_ratio
+    category: Kernel / Memory
+    label: Dirty background ratio (%)
+    source: sysctl
+    rule: max
+    recommended: 10
+    yellow_max: 20
+    rationale: "Start background writeback early to smooth out I/O."
+
+  - key: vm.overcommit_memory
+    category: Kernel / Memory
+    label: Overcommit mode
+    source: sysctl
+    rule: in_set
+    recommended: 0
+    green_set: [0]
+    yellow_set: [1, 2]
+    rationale: "0 (heuristic) suits general servers; 1 always-overcommits, 2 is strict."
+
+  - key: vm.max_map_count
+    category: Kernel / Memory
+    label: Max memory map count
+    source: sysctl
+    rule: min
+    recommended: 262144
+    yellow_min: 65530
+    rationale: "Low limits break Elasticsearch, JVMs and other map-heavy workloads."
+
+  - key: kernel.pid_max
+    category: Kernel / Process
+    label: Max PID
+    source: sysctl
+    rule: min
+    recommended: 65536
+    yellow_min: 32768
+    rationale: "Busy servers exhaust low PID ceilings under high thread counts."
+
+  - key: fs.file-max
+    category: Kernel / Files
+    label: System-wide max open files
+    source: sysctl
+    rule: min
+    recommended: 1000000
+    yellow_min: 200000
+    rationale: "Servers with many sockets/files need a high system FD ceiling."
+
+  - key: fs.nr_open
+    category: Kernel / Files
+    label: Per-process FD ceiling
+    source: sysctl
+    rule: min
+    recommended: 1048576
+    yellow_min: 524288
+    rationale: "Caps how high a single process can raise its nofile limit."
+
+  - key: fs.inotify.max_user_watches
+    category: Kernel / Files
+    label: inotify max user watches
+    source: sysctl
+    rule: min
+    recommended: 524288
+    yellow_min: 100000
+    rationale: "Low watch limits break file-watching daemons and build tools."
+
+  - key: fs.inotify.max_user_instances
+    category: Kernel / Files
+    label: inotify max user instances
+    source: sysctl
+    rule: min
+    recommended: 1024
+    yellow_min: 256
+    rationale: "Default 128 instances is exhausted by containers, IDEs and many watcher daemons on a busy host."
+
+  - key: fs.aio-max-nr
+    category: Kernel / Files
+    label: Max async I/O requests (aio-max-nr)
+    source: sysctl
+    rule: min
+    recommended: 1048576
+    yellow_min: 262144
+    rationale: "Default 65536 starves async-I/O-heavy workloads (databases, BlueStore); raise well above it."
+
+  - key: vm.vfs_cache_pressure
+    category: Kernel / Memory
+    label: VFS cache pressure
+    source: sysctl
+    rule: info
+    recommended: "100 (lower keeps dentry/inode cache; higher reclaims it sooner)"
+    rationale: "Workload-dependent: file-serving hosts often lower it (~50); memory-tight app servers raise it. No single 'best'."
+
+  - key: kernel.thp
+    category: Kernel / Memory
+    label: Transparent Huge Pages
+    source: custom
+    rule: in_set
+    recommended: madvise
+    green_set: [madvise]
+    yellow_set: [never]
+    rationale: "'always' THP causes latency stalls/fragmentation; DBs prefer 'never'/'madvise'."
+
+  - key: kernel.swap_present
+    category: Kernel / Memory
+    label: Swap or zram present
+    source: custom
+    rule: bool
+    recommended: true
+    rationale: "Some swap (or zram) prevents hard OOM kills under memory spikes."

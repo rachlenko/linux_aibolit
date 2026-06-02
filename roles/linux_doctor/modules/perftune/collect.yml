@@ -1,0 +1,73 @@
+---
+# Self-guarding raw reads. Emits one YAML doc (scalars + intermediate lists)
+# parsed into facts. All reads are non-mutating (/proc, /sys, systemctl status).
+- name: "[perftune] read CPU/NUMA/service state, NICs, disks and IRQ groups"
+  ansible.builtin.shell: |
+    set +e
+    ncpu=$(nproc 2>/dev/null); [ -n "$ncpu" ] || ncpu=$(grep -c ^processor /proc/cpuinfo 2>/dev/null)
+    numa=$(ls -d /sys/devices/system/node/node[0-9]* 2>/dev/null | wc -l)
+    [ "$numa" -ge 1 ] 2>/dev/null || numa=1
+    # is-active/is-enabled print the state to stdout even when exit code is non-zero.
+    irqb=$(systemctl is-active irqbalance 2>/dev/null); [ -n "$irqb" ] || irqb=unknown
+    fstrim=$(systemctl is-enabled fstrim.timer 2>/dev/null); [ -n "$fstrim" ] || fstrim=unknown
+    echo "ncpu: \"$ncpu\""
+    echo "numa: \"$numa\""
+    echo "irqbalance: \"$irqb\""
+    echo "fstrim: \"$fstrim\""
+    # Physical NICs: have a bus device symlink, excluding loopback/virtual.
+    echo "nics:"
+    any=0
+    for n in /sys/class/net/*; do
+      ifn=$(basename "$n")
+      [ "$ifn" = lo ] && continue
+      [ -e "$n/device" ] || continue
+      echo "  - \"$ifn\""; any=1
+    done
+    [ "$any" -eq 0 ] && echo "  []"
+    # Real disks with rotational flag (same selection as the storage module).
+    echo "disks:"
+    any=0
+    for d in /sys/block/*; do
+      bd=$(basename "$d")
+      case "$bd" in loop*|ram*|sr*|fd*|zram*|dm-*|nbd*|md*) continue;; esac
+      rot=$(cat "$d/queue/rotational" 2>/dev/null)
+      echo "  - \"$bd:$rot\""; any=1
+    done
+    [ "$any" -eq 0 ] && echo "  []"
+    # Storage-controller IRQ groups: irq|label|affinity-list.
+    echo "diskirq:"
+    any=0
+    while read -r line; do
+      case "$line" in *nvme*|*ahci*|*virtio*) ;; *) continue;; esac
+      irq=$(printf '%s' "$line" | awk '{print $1}' | tr -d ':')
+      case "$irq" in ''|*[!0-9]*) continue;; esac
+      name=$(printf '%s' "$line" | awk '{print $NF}')
+      aff=$(cat "/proc/irq/$irq/smp_affinity_list" 2>/dev/null)
+      echo "  - \"$irq|$name|$aff\""; any=1
+    done < /proc/interrupts
+    [ "$any" -eq 0 ] && echo "  []"
+  args:
+    executable: /bin/sh
+  register: _perf
+  failed_when: false
+  changed_when: false
+
+- name: "[perftune] parse probe output"
+  ansible.builtin.set_fact:
+    _pf: "{{ _perf.stdout | from_yaml }}"
+
+- name: "[perftune] read sysctl-sourced values"
+  ansible.builtin.include_tasks: "{{ role_path }}/tasks/collect_sysctl.yml"
+
+- name: "[perftune] register facts"
+  ansible.builtin.set_fact:
+    doctor_perf_nics: "{{ _pf.nics | default([], true) | select('string') | list }}"
+    doctor_perf_disks_raw: "{{ _pf.disks | default([], true) | select('string') | list }}"
+    doctor_perf_diskirq_raw: "{{ _pf.diskirq | default([], true) | select('string') | list }}"
+    doctor_facts: "{{ doctor_facts | combine(_perf_facts) }}"
+  vars:
+    _perf_facts:
+      perf.ncpu: "{{ _pf.ncpu if (_pf.ncpu | default('')) != '' else '__MISSING__' }}"
+      perf.numa_nodes: "{{ _pf.numa | default('1') }}"
+      perf.irqbalance: "{{ _pf.irqbalance | default('unknown') }}"
+      perf.fstrim_timer: "{{ _pf.fstrim | default('unknown') }}"

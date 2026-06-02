@@ -1,0 +1,103 @@
+---
+# Per-disk reader + analyzer. Reads /sys/block/<disk>/queue/* (read-only) and
+# appends one row per checked attribute. Scheduler guidance depends on whether
+# the device is rotational.
+- name: "[storage] read queue attributes for {{ disk }}"
+  ansible.builtin.shell: |
+    q=/sys/block/{{ disk }}/queue
+    sched=$(grep -oE '\[[a-z0-9_-]+\]' "$q/scheduler" 2>/dev/null | tr -d '[]')
+    echo "rotational: \"$(cat "$q/rotational" 2>/dev/null)\""
+    echo "scheduler: \"$sched\""
+    echo "read_ahead_kb: \"$(cat "$q/read_ahead_kb" 2>/dev/null)\""
+    echo "nr_requests: \"$(cat "$q/nr_requests" 2>/dev/null)\""
+    echo "rq_affinity: \"$(cat "$q/rq_affinity" 2>/dev/null)\""
+    echo "add_random: \"$(cat "$q/add_random" 2>/dev/null)\""
+    echo "phys: \"$(cat "$q/physical_block_size" 2>/dev/null)\""
+    echo "logi: \"$(cat "$q/logical_block_size" 2>/dev/null)\""
+  args:
+    executable: /bin/sh
+  register: _draw
+  failed_when: false
+  changed_when: false
+
+- name: "[storage] build per-disk check rows for {{ disk }}"
+  ansible.builtin.set_fact:
+    _disk_rows: "{{ _rows }}"
+  vars:
+    _d: "{{ _draw.stdout | from_yaml }}"
+    _rot: "{{ _d.rotational | default('') | string }}"
+    _is_hdd: "{{ _rot == '1' }}"
+    _cat: "Storage / {{ disk }}"
+    _sched_green: "{{ ['mq-deadline', 'bfq'] if _is_hdd else ['none', 'mq-deadline'] }}"
+    _sched_yellow: "{{ ['none', 'kyber'] if _is_hdd else ['bfq', 'kyber'] }}"
+    _ra_hint: "{{ '≥4096 (HDD: favour sequential read-ahead)' if _is_hdd else '128–256 (SSD/NVMe: large read-ahead wastes bandwidth)' }}"
+    _rows:
+      - module: storage
+        category: "{{ _cat }}"
+        key: "storage.{{ disk }}.type"
+        label: Device type
+        rule: info
+        current: "{{ 'HDD (rotational)' if _is_hdd else ('SSD/Flash' if _rot == '0' else '__MISSING__') }}"
+        rationale: "Rotational class drives scheduler and read-ahead recommendations."
+      - module: storage
+        category: "{{ _cat }}"
+        key: "storage.{{ disk }}.scheduler"
+        label: I/O scheduler
+        rule: in_set
+        current: "{{ _d.scheduler | default('') }}"
+        recommended: "{{ _sched_green | join('/') }}"
+        green_set: "{{ _sched_green }}"
+        yellow_set: "{{ _sched_yellow }}"
+        rationale: "Match the scheduler to the device: low-overhead for flash, fairness for spinning disks."
+      - module: storage
+        category: "{{ _cat }}"
+        key: "storage.{{ disk }}.nr_requests"
+        label: Queue depth (nr_requests)
+        rule: min
+        current: "{{ _d.nr_requests | default('') }}"
+        recommended: 256
+        yellow_min: 128
+        rationale: "Deeper queues improve throughput on parallel-capable devices."
+      - module: storage
+        category: "{{ _cat }}"
+        key: "storage.{{ disk }}.rq_affinity"
+        label: Completion affinity (rq_affinity)
+        rule: in_set
+        current: "{{ _d.rq_affinity | default('') }}"
+        recommended: 2
+        green_set: [2]
+        yellow_set: [1]
+        rationale: "rq_affinity=2 steers completions to the submitting CPU, cutting cross-CPU traffic."
+      - module: storage
+        category: "{{ _cat }}"
+        key: "storage.{{ disk }}.add_random"
+        label: Entropy contribution (add_random)
+        rule: in_set
+        current: "{{ _d.add_random | default('') }}"
+        recommended: 0
+        green_set: [0]
+        yellow_set: [1]
+        rationale: "Disable on fast devices; entropy harvesting adds per-I/O overhead."
+      - module: storage
+        category: "{{ _cat }}"
+        key: "storage.{{ disk }}.read_ahead_kb"
+        label: Read-ahead (KB)
+        rule: info
+        current: "{{ _d.read_ahead_kb | default('') }}"
+        recommended: "{{ _ra_hint }}"
+        rationale: "Tune to the workload; sequential reads benefit, random I/O does not."
+      - module: storage
+        category: "{{ _cat }}"
+        key: "storage.{{ disk }}.block_size"
+        label: Block size (physical/logical)
+        rule: info
+        current: "{{ (_d.phys | default('?')) ~ '/' ~ (_d.logi | default('?')) }}"
+        recommended: "physical = logical"
+        rationale: "A 4096/512 split (512e) means filesystems should align to 4K to avoid RMW."
+
+- name: "[storage] evaluate {{ disk }} rows"
+  ansible.builtin.include_tasks: "{{ role_path }}/tasks/eval_row.yml"
+  loop: "{{ _disk_rows }}"
+  loop_control:
+    loop_var: entry
+    label: "{{ entry.key }}"

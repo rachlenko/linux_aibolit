@@ -1,0 +1,90 @@
+---
+# Scalar MySQL/MariaDB checks. Buffer-pool sizing and OS cross-refs are in
+# analyze.yml. collect.yml empties this list when no server is detected.
+module_catalog:
+  - key: mysql.innodb_flush_log_at_trx_commit
+    category: MySQL / Durability
+    label: innodb_flush_log_at_trx_commit
+    source: custom
+    rule: in_set
+    recommended: 1
+    green_set: [1]
+    yellow_set: [2]
+    rationale: "1 is fully ACID; 2 risks ~1s of commits on crash; 0 risks more."
+
+  - key: mysql.innodb_flush_method
+    category: MySQL / I/O
+    label: innodb_flush_method
+    source: custom
+    rule: in_set
+    recommended: O_DIRECT
+    green_set: [O_DIRECT, O_DIRECT_NO_FSYNC]
+    yellow_set: [fsync, ""]
+    rationale: "O_DIRECT avoids double-buffering InnoDB pages in the OS cache."
+
+  - key: mysql.innodb_file_per_table
+    category: MySQL / Storage
+    label: innodb_file_per_table
+    source: custom
+    rule: bool
+    recommended: true
+    rationale: "Per-table tablespaces reclaim disk on DROP/TRUNCATE and ease management."
+
+  - key: mysql.innodb_io_capacity
+    category: MySQL / I/O
+    label: innodb_io_capacity
+    source: custom
+    rule: min
+    recommended: 1000
+    yellow_min: 200
+    rationale: "Default 200 assumes a single spinning disk; SSD/NVMe sustain far more IOPS."
+
+  - key: mysql.max_connections
+    category: MySQL / Connections
+    label: max_connections
+    source: custom
+    rule: max
+    recommended: 200
+    yellow_max: 500
+    rationale: "Each connection costs memory; pool at the app tier instead of raising blindly."
+
+  - key: mysql.table_open_cache
+    category: MySQL / Caches
+    label: table_open_cache
+    source: custom
+    rule: min
+    recommended: 2000
+    yellow_min: 1000
+    rationale: "Too low forces repeated table reopens under many concurrent tables."
+
+  - key: mysql.skip_name_resolve
+    category: MySQL / Network
+    label: skip_name_resolve
+    source: custom
+    rule: bool
+    recommended: true
+    rationale: "Skipping reverse-DNS on connect removes a latency/availability dependency."
+
+  - key: mysql.query_cache_type
+    category: MySQL / Legacy
+    label: query_cache_type
+    source: custom
+    rule: in_set
+    recommended: "0"
+    green_set: ["0", "OFF"]
+    yellow_set: ["1", "ON", "2"]
+    rationale: "The query cache is a contention point (removed in 8.0); keep it off."
+
+  - key: mysql.innodb_log_file_size
+    category: MySQL / WAL
+    label: innodb_log_file_size
+    source: custom
+    rule: info
+    rationale: "Larger redo logs smooth write-heavy workloads; size to ~25% of buffer pool."
+
+  - key: mysql.tmp_table_size
+    category: MySQL / Memory
+    label: tmp_table_size
+    source: custom
+    rule: info
+    rationale: "Caps in-memory temp tables before they spill to disk."

@@ -1,0 +1,29 @@
+---
+- name: "[kernel] read sysctl-sourced values"
+  ansible.builtin.include_tasks: "{{ role_path }}/tasks/collect_sysctl.yml"
+
+- name: "[kernel] read Transparent Huge Pages mode"
+  ansible.builtin.slurp:
+    src: /sys/kernel/mm/transparent_hugepage/enabled
+  register: _thp
+  failed_when: false
+  changed_when: false
+
+- name: "[kernel] read swap table"
+  ansible.builtin.slurp:
+    src: /proc/swaps
+  register: _swaps
+  failed_when: false
+  changed_when: false
+
+- name: "[kernel] register custom kernel facts"
+  ansible.builtin.set_fact:
+    doctor_facts: "{{ doctor_facts | combine(_kernel_custom) }}"
+  vars:
+    _thp_raw: "{{ (_thp.content | b64decode) if (_thp.content is defined) else '' }}"
+    _thp_mode: "{{ (_thp_raw | regex_search('\\[(\\w+)\\]', '\\1') | first) if (_thp_raw | regex_search('\\[(\\w+)\\]')) else '__MISSING__' }}"
+    _swaps_raw: "{{ (_swaps.content | b64decode) if (_swaps.content is defined) else '' }}"
+    _swap_devs: "{{ _swaps_raw.split('\n') | select('match', '^/') | list }}"
+    _kernel_custom:
+      kernel.thp: "{{ _thp_mode }}"
+      kernel.swap_present: "{{ 'true' if (_swap_devs | length > 0) else 'false' }}"

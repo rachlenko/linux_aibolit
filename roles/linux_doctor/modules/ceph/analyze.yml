@@ -1,0 +1,60 @@
+---
+# RAM-vs-OSD sizing and network MTU context. Only runs when Ceph is detected.
+- name: "[ceph] read interface MTUs (read-only)"
+  ansible.builtin.shell: |
+    set +e
+    ip -o link 2>/dev/null \
+      | awk '$2 != "lo:" {for (i=1;i<=NF;i++) if ($i=="mtu") print $(i+1)}' \
+      | sort -rn | head -1
+  args:
+    executable: /bin/sh
+  register: _ceph_mtu
+  failed_when: false
+  changed_when: false
+  when: doctor_ceph_detected | default(false)
+
+- name: "[ceph] build sizing and MTU rows"
+  ansible.builtin.set_fact:
+    _ceph_rows: "{{ _rows }}"
+  vars:
+    _num: "{{ doctor_ceph_num_osds | default(0) | int }}"
+    _mt_fact: "{{ doctor_facts['ceph.osd_memory_target'] | default('__MISSING__') }}"
+    _mt: "{{ (_mt_fact | int) if _mt_fact != '__MISSING__' else 4294967296 }}"
+    _mt_mb: "{{ (_mt | int / 1048576) | round | int }}"
+    _req_mb: "{{ (_num | int * (_mt | int) / 1048576 * 2) | round | int }}"
+    _yellow_mb: "{{ (_num | int * (_mt | int) / 1048576 * 1.2) | round | int }}"
+    _maxmtu: "{{ _ceph_mtu.stdout | default('') | trim }}"
+    _ram_row: >-
+      {{
+        {
+          'module': 'ceph', 'category': 'Ceph / Memory',
+          'key': 'ceph.ram_vs_osds', 'label': 'Host RAM vs OSD memory budget',
+          'rule': ('min' if (_num | int) > 0 else 'info'),
+          'current': (ansible_facts.memtotal_mb | default('__MISSING__')),
+          'recommended': (_req_mb ~ ' MB  (' ~ _num ~ ' OSDs × ' ~ _mt_mb ~ 'MB × 2)') if (_num | int) > 0
+                         else 'no local OSDs on this host (mon/mgr only)',
+          'yellow_min': _yellow_mb,
+          'rationale': 'Total RAM should exceed OSDs × osd_memory_target × 2 to absorb cache spikes and the OS without swapping.'
+        }
+      }}
+    _mtu_row: >-
+      {{
+        {
+          'module': 'ceph', 'category': 'Ceph / OS Network',
+          'key': 'ceph.max_mtu', 'label': 'Largest interface MTU',
+          'rule': 'info',
+          'current': (_maxmtu if _maxmtu != '' else '__MISSING__'),
+          'recommended': '9000 on the storage network (jumbo frames)',
+          'rationale': 'Jumbo frames cut per-packet overhead for replication/recovery; must be consistent end-to-end.'
+        }
+      }}
+    _rows: "{{ [_ram_row, _mtu_row] }}"
+  when: doctor_ceph_detected | default(false)
+
+- name: "[ceph] evaluate sizing and MTU rows"
+  ansible.builtin.include_tasks: "{{ role_path }}/tasks/eval_row.yml"
+  loop: "{{ _ceph_rows | default([]) }}"
+  loop_control:
+    loop_var: entry
+    label: "{{ entry.key }}"
+  when: doctor_ceph_detected | default(false)

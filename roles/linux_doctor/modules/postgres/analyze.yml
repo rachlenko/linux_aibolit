@@ -1,0 +1,54 @@
+---
+# RAM-relative sizing + OS cross-references. Only runs when Postgres was found.
+- name: "[postgres] build RAM-relative and OS cross-ref rows"
+  ansible.builtin.set_fact:
+    _pg_rows: "{{ _rows }}"
+  vars:
+    _ram: "{{ ansible_facts.memtotal_mb | default(0) | int }}"
+    _sb_rec: "{{ (_ram | int * 0.25) | round | int }}"
+    _ec_rec: "{{ (_ram | int * 0.60) | round | int }}"
+    _rows:
+      - module: postgres
+        category: PostgreSQL / Memory
+        key: pg.shared_buffers_sized
+        label: shared_buffers vs RAM
+        rule: min
+        current: "{{ doctor_facts['pg.shared_buffers_mb'] | default('__MISSING__') }}"
+        recommended: "{{ _sb_rec }} MB (~25% of {{ _ram }}MB RAM)"
+        yellow_min: "{{ (_ram | int * 0.10) | round | int }}"
+        rationale: "Default 128MB starves a dedicated DB; ~25% RAM is the standard starting point (don't exceed ~40%)."
+      - module: postgres
+        category: PostgreSQL / Memory
+        key: pg.effective_cache_size_sized
+        label: effective_cache_size vs RAM
+        rule: min
+        current: "{{ doctor_facts['pg.effective_cache_size_mb'] | default('__MISSING__') }}"
+        recommended: "{{ _ec_rec }} MB (~60% of {{ _ram }}MB RAM)"
+        yellow_min: "{{ (_ram | int * 0.30) | round | int }}"
+        rationale: "Tells the planner how much OS cache to expect; ~50–75% RAM encourages index scans."
+      - module: postgres
+        category: PostgreSQL / OS cross-ref
+        key: pg.os_thp
+        label: Transparent Huge Pages (OS)
+        rule: in_set
+        current: "{{ doctor_facts['kernel.thp'] | default('__MISSING__') }}"
+        recommended: never
+        green_set: [never]
+        yellow_set: [madvise]
+        rationale: "PostgreSQL recommends THP 'never'; 'always' causes latency stalls under load."
+      - module: postgres
+        category: PostgreSQL / OS cross-ref
+        key: pg.os_overcommit
+        label: vm.overcommit_memory (OS)
+        rule: info
+        current: "{{ doctor_facts['vm.overcommit_memory'] | default('__MISSING__') }}"
+        recommended: "2 or 0 (avoid 1)"
+        rationale: "Mode 1 (always overcommit) can let the OOM killer target the postmaster."
+
+- name: "[postgres] evaluate RAM/OS rows"
+  ansible.builtin.include_tasks: "{{ role_path }}/tasks/eval_row.yml"
+  loop: "{{ _pg_rows }}"
+  loop_control:
+    loop_var: entry
+    label: "{{ entry.key }}"
+  when: doctor_pg_detected | default(false)

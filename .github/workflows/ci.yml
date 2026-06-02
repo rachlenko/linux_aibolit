@@ -1,0 +1,92 @@
+---
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NAMESPACE: rachlenko
+  COLLECTION_NAME: linux_aibolit
+
+jobs:
+  lint:
+    name: ansible-lint + yamllint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install "ansible-core>=2.15" ansible-lint yamllint
+      - run: yamllint .
+      - run: ansible-lint
+
+  sanity:
+    name: Sanity (${{ matrix.ansible }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ansible:
+          - stable-2.15
+          - stable-2.16
+          - stable-2.17
+          - devel
+    steps:
+      - name: Check out the collection into the expected path
+        uses: actions/checkout@v4
+        with:
+          path: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install "https://github.com/ansible/ansible/archive/${{ matrix.ansible }}.tar.gz" --disable-pip-version-check
+      - name: Run sanity tests
+        run: ansible-test sanity --docker -v --color
+        working-directory: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
+
+  integration:
+    name: Integration (${{ matrix.ansible }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ansible:
+          - stable-2.16
+          - stable-2.17
+    steps:
+      - name: Check out the collection into the expected path
+        uses: actions/checkout@v4
+        with:
+          path: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install "https://github.com/ansible/ansible/archive/${{ matrix.ansible }}.tar.gz" --disable-pip-version-check
+      - name: Run integration targets
+        run: ansible-test integration --docker -v --color
+        working-directory: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
+
+  molecule:
+    name: Molecule (default scenario)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install "ansible-core>=2.15" "molecule>=6" molecule-plugins
+      - name: molecule test
+        run: molecule test
+        working-directory: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
+        env:
+          ANSIBLE_COLLECTIONS_PATH: ${{ github.workspace }}

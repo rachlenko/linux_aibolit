@@ -1,0 +1,93 @@
+---
+# Per-NIC reader + analyzer: IRQ affinity, RPS, XPS. Reads /sys + /proc only.
+- name: "[perftune] read NIC queue/IRQ/RPS state for {{ nic }}"
+  ansible.builtin.shell: |
+    set +e
+    N=/sys/class/net/{{ nic }}
+    rxq=$(ls -d "$N"/queues/rx-* 2>/dev/null | wc -l)
+    txq=$(ls -d "$N"/queues/tx-* 2>/dev/null | wc -l)
+    # NIC IRQs: prefer PCI MSI-X table; fall back to /proc/interrupts by name.
+    irqs=""
+    [ -d "$N/device/msi_irqs" ] && irqs=$(ls "$N/device/msi_irqs" 2>/dev/null)
+    [ -z "$irqs" ] && irqs=$(grep -w "{{ nic }}" /proc/interrupts 2>/dev/null | awk -F: '{print $1}' | tr -d ' ')
+    maxcpu=-1; affall=""
+    for irq in $irqs; do
+      case "$irq" in ''|*[!0-9]*) continue;; esac
+      a=$(cat "/proc/irq/$irq/smp_affinity_list" 2>/dev/null)
+      [ -n "$a" ] && affall="$affall $a"
+      for tok in $(printf '%s' "$a" | tr ',' ' '); do
+        hi=${tok##*-}
+        case "$hi" in ''|*[!0-9]*) continue;; esac
+        [ "$hi" -gt "$maxcpu" ] && maxcpu=$hi
+      done
+    done
+    aff=$(printf '%s\n' $affall | sort -un | paste -sd, - 2>/dev/null)
+    rpson=0
+    for f in "$N"/queues/rx-*/rps_cpus; do
+      v=$(cat "$f" 2>/dev/null | tr -d ',0\n')
+      [ -n "$v" ] && rpson=1
+    done
+    xpson=0
+    for f in "$N"/queues/tx-*/xps_cpus; do
+      v=$(cat "$f" 2>/dev/null | tr -d ',0\n')
+      [ -n "$v" ] && xpson=1
+    done
+    echo "rxq: \"$rxq\""
+    echo "txq: \"$txq\""
+    echo "maxcpu: \"$maxcpu\""
+    echo "aff: \"$aff\""
+    echo "rpson: \"$rpson\""
+    echo "xpson: \"$xpson\""
+  args:
+    executable: /bin/sh
+  register: _nicraw
+  failed_when: false
+  changed_when: false
+
+- name: "[perftune] build NIC rows for {{ nic }}"
+  ansible.builtin.set_fact:
+    doctor_results: "{{ doctor_results + _rows }}"
+  vars:
+    _n: "{{ _nicraw.stdout | from_yaml }}"
+    _cat: "Perftune / NIC {{ nic }}"
+    _rxq: "{{ _n.rxq | default(0) | int }}"
+    _txq: "{{ _n.txq | default(0) | int }}"
+    _maxcpu: "{{ _n.maxcpu | default(-1) | int }}"
+    _aff: "{{ _n.aff | default('') }}"
+    _rpson: "{{ (_n.rpson | default('0') | string) == '1' }}"
+    _xpson: "{{ (_n.xpson | default('0') | string) == '1' }}"
+    _rps_needed: "{{ (_rxq | int) > 0 and (_rxq | int) < (perf_ncpu | int) }}"
+    _xps_needed: "{{ (_txq | int) > 0 and (_txq | int) < (perf_ncpu | int) }}"
+    _irq_status: >-
+      {% if (_maxcpu | int) < 0 or _aff == '' %}grey
+      {%- elif (_maxcpu | int) < (perf_irq_k | int) %}green
+      {%- else %}yellow{% endif %}
+    _rps_status: >-
+      {% if not (_rps_needed | bool) %}green
+      {%- elif (_rpson | bool) %}green
+      {%- else %}yellow{% endif %}
+    _rows:
+      - module: perftune
+        category: "{{ _cat }}"
+        key: "perf.nic.{{ nic }}.irq"
+        label: IRQ affinity
+        current: "{{ _aff if _aff != '' else '—' }}"
+        recommended: "cores {{ perf_irq_list }} (mask {{ perf_irq_mask }})"
+        status: "{{ _irq_status | trim }}"
+        rationale: "Pin NIC IRQs to the dedicated IRQ-core set so packet processing stays off the app/compute cores. Advisory while irqbalance runs."
+      - module: perftune
+        category: "{{ _cat }}"
+        key: "perf.nic.{{ nic }}.rps"
+        label: "RPS (receive packet steering)"
+        current: "rps {{ 'on' if (_rpson | bool) else 'off' }}, rx_queues={{ _rxq }}"
+        recommended: "{{ ('enable rps_cpus=' ~ perf_compute_mask) if (_rps_needed | bool) else 'not needed (multiqueue covers all CPUs)' }}"
+        status: "{{ _rps_status | trim }}"
+        rationale: "Single/low-queue NICs benefit from RPS spreading softirq load across the compute cores; fully multiqueue NICs do not need it."
+      - module: perftune
+        category: "{{ _cat }}"
+        key: "perf.nic.{{ nic }}.xps"
+        label: "XPS (transmit packet steering)"
+        current: "xps {{ 'on' if (_xpson | bool) else 'off' }}, tx_queues={{ _txq }}"
+        recommended: "{{ ('enable xps_cpus=' ~ perf_compute_mask) if (_xps_needed | bool) else 'not needed (multiqueue covers all CPUs)' }}"
+        status: grey
+        rationale: "Advisory: XPS binds tx queues to sending CPUs to reduce lock contention; mirror of the RPS guidance for transmit."

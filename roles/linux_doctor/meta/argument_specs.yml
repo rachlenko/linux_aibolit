@@ -1,0 +1,60 @@
+---
+# Documents and validates the role's public interface. ansible-core runs this
+# automatically when the role's `main` entry point is invoked, so a caller that
+# passes a wrong type (e.g. a string where a list is expected) fails fast with a
+# clear message instead of producing a confusing report.
+argument_specs:
+  main:
+    short_description: Read-only Linux configuration audit (Dr. Aibolit).
+    description:
+      - Runs a sequence of self-contained audit modules against the target,
+        comparing each setting to a general-purpose server baseline, and renders
+        one self-contained HTML report per host on the control node.
+      - The role is strictly read-only. Every collector is non-mutating and
+        defensive, and the report is rendered on the control node via delegation
+        to localhost.
+    author:
+      - Evgeny Rachlenko (@rachlenko)
+    options:
+      doctor_modules:
+        type: list
+        elements: str
+        required: false
+        default:
+          - kernel
+          - network
+          - storage
+          - filesystem
+          - cpu
+          - perftune
+          - limits
+        description:
+          - System audit modules to run, in order. Each name must map to a
+            directory under C(roles/linux_doctor/modules/<name>/).
+
+      doctor_extra_modules:
+        type: list
+        elements: str
+        required: false
+        default: []
+        description:
+          - Opt-in component modules appended after the system modules. They are
+            self-guarding and read configuration only.
+          - "Available: V(postgres), V(mysql), V(oracle), V(ceph)."
+
+      doctor_report_dir:
+        type: str
+        required: false
+        default: "{{ playbook_dir }}/reports"
+        description:
+          - Directory on the B(control node) where per-host HTML reports are
+            written. One file C(<inventory_hostname>.html) is produced per host.
+
+      doctor_become:
+        type: bool
+        required: false
+        default: false
+        description:
+          - Escalate privileges B(on the target) to read configuration files that
+            require it (for example systemd unit limits or C(postgresql.conf)).
+            Off by default to keep the audit minimal-footprint.

@@ -1,0 +1,19 @@
+# Rendered audit reports are runtime artifacts.
+reports/*.html
+*.retry
+__pycache__/
+.DS_Store
+
+# Galaxy build artifacts
+*.tar.gz
+/dist/
+
+# ansible-test / molecule output
+/tests/output/
+/.pytest_cache/
+.molecule/
+/changelogs/.plugin-cache.yaml
+
+# ansible-lint / runtime cache
+/.ansible/
+/.cache/

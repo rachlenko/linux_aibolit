@@ -1,0 +1,10 @@
+---
+# Nothing was created, so nothing to destroy.
+- name: Destroy
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: No-op teardown
+      ansible.builtin.debug:
+        msg: "No instances to tear down."

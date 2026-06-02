@@ -1,0 +1,45 @@
+---
+- name: "[limits] read sysctl-sourced values"
+  ansible.builtin.include_tasks: "{{ role_path }}/tasks/collect_sysctl.yml"
+
+# One read-only shell probe emitting YAML so it parses straight into a dict.
+# 'unlimited'/'infinity' are normalised to a large integer so numeric rules work.
+- name: "[limits] probe limits.conf, systemd and PAM (read-only)"
+  ansible.builtin.shell: |
+    set +e
+    big=1073741816
+    norm() { echo "$1" | sed -e 's/unlimited/'"$big"'/' -e 's/infinity/'"$big"'/'; }
+    files="/etc/security/limits.conf $(ls /etc/security/limits.d/*.conf 2>/dev/null)"
+    soft=$(grep -hE '^[^#]*[[:space:]]nofile[[:space:]]' $files 2>/dev/null \
+           | awk '($2=="soft"||$2=="-") && $3=="nofile"{v=$4} END{if(v!="")print v}')
+    hard=$(grep -hE '^[^#]*[[:space:]]nofile[[:space:]]' $files 2>/dev/null \
+           | awk '($2=="hard"||$2=="-") && $3=="nofile"{v=$4} END{if(v!="")print v}')
+    sysd=$(grep -hE '^DefaultLimitNOFILE=' /etc/systemd/system.conf /etc/systemd/system.conf.d/*.conf 2>/dev/null \
+           | tail -1 | cut -d= -f2 | cut -d: -f1)
+    filenr=$(cut -f1 /proc/sys/fs/file-nr 2>/dev/null)
+    pid1=$(awk '/Max open files/{print $4}' /proc/1/limits 2>/dev/null)
+    pam=$(grep -rlE 'pam_limits\.so' /etc/pam.d 2>/dev/null | head -1)
+    printf 'file_nr: "%s"\n'        "${filenr:-}"
+    printf 'nofile_soft: "%s"\n'    "$(norm "${soft:-}")"
+    printf 'nofile_hard: "%s"\n'    "$(norm "${hard:-}")"
+    printf 'systemd_nofile: "%s"\n' "$(norm "${sysd:-}")"
+    printf 'pid1_nofile: "%s"\n'    "$(norm "${pid1:-}")"
+    printf 'pam: "%s"\n'            "$([ -n "$pam" ] && echo true || echo false)"
+  args:
+    executable: /bin/sh
+  register: _limits
+  failed_when: false
+  changed_when: false
+
+- name: "[limits] register custom limits facts"
+  ansible.builtin.set_fact:
+    doctor_facts: "{{ doctor_facts | combine(_limits_facts) }}"
+  vars:
+    _l: "{{ _limits.stdout | from_yaml }}"
+    _limits_facts:
+      fs.file-nr: "{{ _l.file_nr if (_l.file_nr | default('')) != '' else '__MISSING__' }}"
+      limits.nofile_soft: "{{ _l.nofile_soft if (_l.nofile_soft | default('')) != '' else '__MISSING__' }}"
+      limits.nofile_hard: "{{ _l.nofile_hard if (_l.nofile_hard | default('')) != '' else '__MISSING__' }}"
+      limits.systemd_default_nofile: "{{ _l.systemd_nofile if (_l.systemd_nofile | default('')) != '' else '__MISSING__' }}"
+      limits.pid1_nofile: "{{ _l.pid1_nofile if (_l.pid1_nofile | default('')) != '' else '__MISSING__' }}"
+      limits.pam_limits_enabled: "{{ _l.pam | default('false') }}"

@@ -1,0 +1,45 @@
+---
+# Public interface under test: opt-in component modules are self-guarding. On a
+# host without the component (the CI case) the module must emit exactly one grey
+# "not detected" row and must never fail the play or add red/yellow noise.
+
+- name: Create an isolated report directory on the controller
+  ansible.builtin.tempfile:
+    state: directory
+    suffix: aibolit
+  register: _reportdir
+  delegate_to: localhost
+
+- name: Run with only the postgres opt-in module enabled
+  ansible.builtin.include_role:
+    name: rachlenko.linux_aibolit.linux_doctor
+  vars:
+    doctor_modules: []
+    doctor_extra_modules:
+      - postgres
+    doctor_report_dir: "{{ _reportdir.path }}"
+
+- name: Collect the rows the postgres module produced
+  ansible.builtin.set_fact:
+    _pg_rows: "{{ doctor_results | selectattr('module', 'equalto', 'postgres') | list }}"
+
+- name: The module ran and self-guarded cleanly
+  ansible.builtin.assert:
+    quiet: true
+    that:
+      - _pg_rows | length >= 1
+      # If PostgreSQL is genuinely installed the module produces graded rows;
+      # otherwise it must collapse to a single grey 'pg.detected' row.
+      - >-
+        (doctor_pg_detected | default(false) | bool)
+        or (
+          (_pg_rows | selectattr('key', 'equalto', 'pg.detected')
+                    | selectattr('status', 'equalto', 'grey') | list | length) == 1
+        )
+    fail_msg: "postgres opt-in module did not self-guard correctly: {{ _pg_rows }}"
+
+- name: Remove the temporary report directory
+  ansible.builtin.file:
+    path: "{{ _reportdir.path }}"
+    state: absent
+  delegate_to: localhost

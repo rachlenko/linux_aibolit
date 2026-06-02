@@ -1,0 +1,96 @@
+---
+# Computes the shared CPU-set heuristic once, then orchestrates the dynamic
+# per-NIC, per-controller, I/O-profile and fstrim rows.
+
+# --- Heuristic engine: derive IRQ-core and compute-core sets from CPU topology.
+#   IRQ cores: all cores if ncpu<=8; else cores 0..k-1, k=max(2, ncpu//4).
+#   Compute cores: complement of the IRQ set (coincides with it when ncpu<=8).
+- name: "[perftune] compute IRQ/compute core sets"
+  ansible.builtin.set_fact:
+    perf_ncpu: "{{ _ncpu | int }}"
+    perf_irq_k: "{{ _k | int }}"
+    perf_irq_list: "{{ '0' if (_k | int) <= 1 else ('0-' ~ ((_k | int) - 1)) }}"
+    perf_irq_mask: "{{ ('%x' % (_irq_full | int)).rjust(4, '0') }}"
+    perf_compute_mask: "{{ ('%x' % (_compute_full | int)).rjust(4, '0') }}"
+  vars:
+    _ncpu_raw: "{{ doctor_facts['perf.ncpu'] | default('__MISSING__') }}"
+    _ncpu: "{{ (_ncpu_raw | int) if _ncpu_raw not in ['__MISSING__', ''] else (ansible_facts.processor_vcpus | default(ansible_facts.processor_count) | default(1) | int) }}"
+    _small: "{{ (_ncpu | int) <= 8 }}"
+    _k: "{{ (_ncpu | int) if (_small | bool) else ([2, ((_ncpu | int) // 4)] | max) }}"
+    _irq_full: "{{ (2 ** (_k | int)) - 1 }}"
+    _all_full: "{{ (2 ** (_ncpu | int)) - 1 }}"
+    _compute_full: "{{ (_all_full | int) if (_small | bool) else ((_all_full | int) - (_irq_full | int)) }}"
+
+- name: "[perftune] topology context row"
+  ansible.builtin.include_tasks: "{{ role_path }}/tasks/eval_row.yml"
+  vars:
+    entry:
+      module: perftune
+      category: Perftune / Topology
+      key: perf.irq_core_set
+      label: Computed IRQ-core set (for this host)
+      rule: info
+      current: "ncpu={{ perf_ncpu }}, numa={{ doctor_facts['perf.numa_nodes'] | default('?') }}"
+      recommended: "IRQ cores {{ perf_irq_list }} (mask {{ perf_irq_mask }}), compute mask {{ perf_compute_mask }}"
+      rationale: "Derived from CPU count: IRQ cores = all if ncpu<=8 else 0..max(2,ncpu/4)-1. The per-NIC/per-controller rows below reuse this set."
+
+# --- Per physical NIC.
+- name: "[perftune] no physical NICs found"
+  ansible.builtin.set_fact:
+    doctor_results: "{{ doctor_results + [_row] }}"
+  vars:
+    _row:
+      module: perftune
+      category: Perftune / Network
+      key: perf.nic.none
+      label: Physical NICs
+      current: "—"
+      recommended: "—"
+      status: grey
+      rationale: "No physical NIC with a bus device (container or fully virtual networking)."
+  when: doctor_perf_nics | default([]) | length == 0
+
+- name: "[perftune] analyse each physical NIC"
+  ansible.builtin.include_tasks: _nic.yml
+  loop: "{{ doctor_perf_nics | default([]) }}"
+  loop_control:
+    loop_var: nic
+    label: "{{ nic }}"
+
+# --- Storage-controller IRQ groups + per-class I/O-profile targets.
+- name: "[perftune] analyse disk IRQ groups and I/O profiles"
+  ansible.builtin.include_tasks: _diskirq.yml
+
+# --- fstrim.timer (SSD-aware): green if enabled; yellow if a flash device is
+#     present but the timer is off; grey if HDD-only / no disks / unknown.
+- name: "[perftune] fstrim.timer suitability"
+  ansible.builtin.set_fact:
+    doctor_results: "{{ doctor_results + [_row] }}"
+  vars:
+    _disks: "{{ doctor_perf_disks_raw | default([]) }}"
+    _has_disk: "{{ (_disks | length) > 0 }}"
+    _ssd_present: "{{ (_disks | map('regex_search', ':0$') | select('string') | list | length) > 0 }}"
+    _timer: "{{ doctor_facts['perf.fstrim_timer'] | default('unknown') }}"
+    _status: >-
+      {% if not (_has_disk | bool) %}grey
+      {%- elif not (_ssd_present | bool) %}grey
+      {%- elif _timer == 'enabled' %}green
+      {%- elif _timer == 'disabled' %}yellow
+      {%- else %}grey{% endif %}
+    _reco: >-
+      {% if (_status | trim) == 'yellow' %}enable fstrim.timer (weekly)
+      {%- elif (_status | trim) == 'green' %}enabled (weekly)
+      {%- else %}—{% endif %}
+    _why: >-
+      {% if not (_has_disk | bool) %}No inspectable block devices.
+      {%- elif not (_ssd_present | bool) %}Only rotational disks present; periodic TRIM does not apply.
+      {%- else %}Periodic fstrim.timer keeps flash performance steady without continuous-discard latency; see the filesystem TRIM rows for per-mount discard options.{% endif %}
+    _row:
+      module: perftune
+      category: Perftune / Storage
+      key: perf.fstrim_timer_suitability
+      label: fstrim.timer (flash TRIM)
+      current: "{{ _timer }}"
+      recommended: "{{ _reco | trim }}"
+      status: "{{ _status | trim }}"
+      rationale: "{{ _why | trim }}"

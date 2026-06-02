@@ -1,0 +1,18 @@
+---
+- name: Converge
+  hosts: all
+  gather_facts: true
+  vars:
+    _reports: "{{ lookup('env', 'MOLECULE_EPHEMERAL_DIRECTORY') }}/reports"
+  tasks:
+    - name: Run the audit with a system module set plus an opt-in component
+      ansible.builtin.include_role:
+        name: rachlenko.linux_aibolit.linux_doctor
+      vars:
+        doctor_modules:
+          - kernel
+          - network
+          - limits
+        doctor_extra_modules:
+          - postgres
+        doctor_report_dir: "{{ _reports }}"

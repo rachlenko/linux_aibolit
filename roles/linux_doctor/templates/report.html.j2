@@ -1,0 +1,119 @@
+{#- Self-contained per-host audit report. No external assets, no JS. -#}
+{%- set order = doctor_modules + doctor_extra_modules -%}
+{%- set reds = doctor_results | selectattr('status', 'equalto', 'red') | list -%}
+{%- set yellows = doctor_results | selectattr('status', 'equalto', 'yellow') | list -%}
+{%- set greens = doctor_results | selectattr('status', 'equalto', 'green') | list -%}
+{%- set greys = doctor_results | selectattr('status', 'equalto', 'grey') | list -%}
+{%- set graded = (reds | length) + (yellows | length) + (greens | length) -%}
+{%- set score = ((greens | length) / graded * 100) | round | int if graded > 0 else 0 -%}
+{%- set bg = {'red': '#f8d7da', 'yellow': '#fff3cd', 'green': '#d4edda', 'grey': '#e2e3e5'} -%}
+{%- set emoji = {'red': '🔴', 'yellow': '🟡', 'green': '🟢', 'grey': '⬜'} -%}
+{%- set af = ansible_facts -%}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Linux Conf Doctor — {{ inventory_hostname }}</title>
+<style>
+  :root { --fg:#1b1f23; --muted:#57606a; --line:#d0d7de; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+         color: var(--fg); margin: 0; background: #f6f8fa; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 24px; }
+  header { background: #fff; border: 1px solid var(--line); border-radius: 10px;
+           padding: 20px 24px; margin-bottom: 20px; }
+  h1 { margin: 0 0 4px; font-size: 22px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
+  .facts { display: flex; flex-wrap: wrap; gap: 8px 24px; font-size: 13px; color: var(--muted); }
+  .facts b { color: var(--fg); font-weight: 600; }
+  .score { display: flex; align-items: center; gap: 18px; margin-top: 16px; }
+  .ring { font-size: 30px; font-weight: 700; padding: 10px 18px; border-radius: 10px; }
+  .counts span { display: inline-block; margin-right: 14px; font-size: 14px; }
+  details { background: #fff; border: 1px solid var(--line); border-radius: 10px;
+            margin-bottom: 14px; overflow: hidden; }
+  summary { cursor: pointer; padding: 14px 18px; font-weight: 600; font-size: 16px;
+            list-style: none; display: flex; justify-content: space-between; align-items: center; }
+  summary::-webkit-details-marker { display: none; }
+  summary .pills span { font-size: 12px; font-weight: 600; margin-left: 6px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 12px; border-top: 1px solid var(--line);
+           vertical-align: top; }
+  th { background: #f6f8fa; color: var(--muted); font-weight: 600; position: sticky; }
+  td.status { font-weight: 600; white-space: nowrap; }
+  td.cat { color: var(--muted); white-space: nowrap; }
+  td.param { font-weight: 600; }
+  td.why { color: var(--muted); }
+  code { background: #eff1f3; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  footer { color: var(--muted); font-size: 12px; text-align: center; margin: 24px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🩺 Linux Conf Doctor — {{ inventory_hostname }}</h1>
+    <div class="sub">Read-only configuration audit · {{ af.date_time.date | default('') }} {{ af.date_time.time | default('') }}</div>
+    <div class="facts">
+      <div><b>OS:</b> {{ af.distribution | default('?') }} {{ af.distribution_version | default('') }}</div>
+      <div><b>Kernel:</b> {{ af.kernel | default('?') }}</div>
+      <div><b>Arch:</b> {{ af.architecture | default('?') }}</div>
+      <div><b>CPUs:</b> {{ af.processor_vcpus | default(af.processor_count) | default('?') }}</div>
+      <div><b>RAM:</b> {{ af.memtotal_mb | default('?') }} MB</div>
+    </div>
+    <div class="score">
+      <div class="ring" style="background: {{ bg['green'] if score >= 80 else (bg['yellow'] if score >= 50 else bg['red']) }};">
+        {{ score }}<span style="font-size:14px;"> / 100</span>
+      </div>
+      <div class="counts">
+        <span>🔴 {{ reds | length }} critical</span>
+        <span>🟡 {{ yellows | length }} warning</span>
+        <span>🟢 {{ greens | length }} good</span>
+        <span>⬜ {{ greys | length }} skipped</span>
+      </div>
+    </div>
+  </header>
+
+  {%- for mod in order %}
+    {%- set rows = doctor_results | selectattr('module', 'equalto', mod) | list %}
+    {%- if rows | length > 0 %}
+      {%- set mreds = rows | selectattr('status', 'equalto', 'red') | list %}
+      {%- set myellows = rows | selectattr('status', 'equalto', 'yellow') | list %}
+  <details {{ 'open' if (mreds | length > 0 or myellows | length > 0) else '' }}>
+    <summary>
+      <span>{{ mod | capitalize }}</span>
+      <span class="pills">
+        {%- if mreds | length %}<span>🔴 {{ mreds | length }}</span>{% endif %}
+        {%- if myellows | length %}<span>🟡 {{ myellows | length }}</span>{% endif %}
+        <span style="color:var(--muted);">{{ rows | length }} checks</span>
+      </span>
+    </summary>
+    <table>
+      <thead>
+        <tr><th>Category</th><th>Parameter</th><th>Current</th><th>Recommended</th><th>Status</th><th>Why</th></tr>
+      </thead>
+      <tbody>
+        {%- for st in ['red', 'yellow', 'green', 'grey'] %}
+          {%- for row in rows if row.status == st %}
+        <tr>
+          <td class="cat">{{ row.category }}</td>
+          <td class="param">{{ row.label }}</td>
+          <td><code>{{ row.current }}</code></td>
+          <td>{{ row.recommended }}</td>
+          <td class="status" style="background: {{ bg[row.status] }};">{{ emoji[row.status] }} {{ row.status | upper }}</td>
+          <td class="why">{{ row.rationale }}</td>
+        </tr>
+          {%- endfor %}
+        {%- endfor %}
+      </tbody>
+    </table>
+  </details>
+    {%- endif %}
+  {%- endfor %}
+
+  <footer>
+    Generated by Linux Conf Doctor — diagnostic only, the target was never modified.<br>
+    Thresholds reflect a general-purpose server baseline; tune the catalogs to your workload.
+  </footer>
+</div>
+</body>
+</html>

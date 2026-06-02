@@ -1,0 +1,4 @@
+---
+# The collection under test has no runtime collection dependencies.
+collections: []
+roles: []

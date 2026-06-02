@@ -1,0 +1,22 @@
+---
+# System modules, enabled by default. Each is a self-contained directory
+# under modules/<name>/. Reorder or trim freely.
+doctor_modules:
+  - kernel
+  - network
+  - storage
+  - filesystem
+  - cpu
+  - perftune
+  - limits
+
+# Opt-in component modules (read-only, self-guarding). Enable per run, e.g.:
+#   ansible-playbook site.yml -e '{"doctor_extra_modules":["postgres"]}'
+doctor_extra_modules: []
+
+# Where the per-host HTML reports are written, on the CONTROL node.
+doctor_report_dir: "{{ playbook_dir }}/reports"
+
+# Privilege escalation for reading restricted config files. Off by default to
+# keep the audit minimal-footprint. Override with -e doctor_become=true.
+doctor_become: false

@@ -1,0 +1,129 @@
+---
+module_catalog:
+  - key: net.core.somaxconn
+    category: Network / Sockets
+    label: Listen backlog (somaxconn)
+    source: sysctl
+    rule: min
+    recommended: 1024
+    yellow_min: 512
+    rationale: "Low backlog drops connections under burst; 1024+ suits busy servers."
+
+  - key: net.core.netdev_max_backlog
+    category: Network / Sockets
+    label: Netdev backlog
+    source: sysctl
+    rule: min
+    recommended: 5000
+    yellow_min: 2000
+    rationale: "Queue depth for packets when the NIC out-paces the kernel."
+
+  - key: net.ipv4.tcp_max_syn_backlog
+    category: Network / TCP
+    label: SYN backlog
+    source: sysctl
+    rule: min
+    recommended: 8192
+    yellow_min: 2048
+    rationale: "Protects against connection drops during SYN bursts."
+
+  - key: net.core.rmem_max
+    category: Network / Buffers
+    label: Max socket receive buffer
+    source: sysctl
+    rule: min
+    recommended: 16777216
+    yellow_min: 4194304
+    rationale: "High-bandwidth/long-RTT links need large receive windows."
+
+  - key: net.core.wmem_max
+    category: Network / Buffers
+    label: Max socket send buffer
+    source: sysctl
+    rule: min
+    recommended: 16777216
+    yellow_min: 4194304
+    rationale: "High-bandwidth/long-RTT links need large send windows."
+
+  - key: net.ipv4.tcp_rmem
+    category: Network / Buffers
+    label: TCP receive buffer (min default max)
+    source: sysctl
+    rule: info
+    recommended: "4096 87380 16777216"
+    rationale: "Auto-tuning bounds for per-socket receive memory."
+
+  - key: net.ipv4.tcp_wmem
+    category: Network / Buffers
+    label: TCP send buffer (min default max)
+    source: sysctl
+    rule: info
+    recommended: "4096 65536 16777216"
+    rationale: "Auto-tuning bounds for per-socket send memory."
+
+  - key: net.ipv4.ip_local_port_range
+    category: Network / TCP
+    label: Ephemeral port range
+    source: sysctl
+    rule: info
+    recommended: "1024 65535"
+    rationale: "Widen for high outbound connection counts."
+
+  - key: net.ipv4.tcp_tw_reuse
+    category: Network / TCP
+    label: TIME-WAIT reuse
+    source: sysctl
+    rule: in_set
+    recommended: 1
+    green_set: [1]
+    yellow_set: [2]
+    rationale: "Lets new outbound connections reuse TIME-WAIT sockets safely."
+
+  - key: net.ipv4.tcp_fin_timeout
+    category: Network / TCP
+    label: FIN timeout (s)
+    source: sysctl
+    rule: max
+    recommended: 30
+    yellow_max: 60
+    rationale: "Shorter FIN timeout frees sockets faster on busy servers."
+
+  - key: net.ipv4.tcp_congestion_control
+    category: Network / TCP
+    label: Congestion control
+    source: sysctl
+    rule: in_set
+    recommended: bbr
+    green_set: [bbr]
+    yellow_set: [cubic, reno, htcp]
+    rationale: "BBR improves throughput on lossy/high-latency links over cubic."
+
+  - key: net.core.default_qdisc
+    category: Network / TCP
+    label: Default queueing discipline
+    source: sysctl
+    rule: in_set
+    recommended: fq
+    green_set: [fq, fq_codel]
+    yellow_set: [pfifo_fast]
+    rationale: "fq pairs with BBR; fq_codel fights bufferbloat."
+
+  - key: net.ipv4.tcp_slow_start_after_idle
+    category: Network / TCP
+    label: Slow-start after idle
+    source: sysctl
+    rule: in_set
+    recommended: 0
+    green_set: [0]
+    yellow_set: [1]
+    rationale: "Disabling avoids re-entering slow start on keep-alive connections."
+
+  - key: net.ipv4.tcp_mtu_probing
+    category: Network / TCP
+    label: MTU probing
+    source: sysctl
+    rule: in_set
+    recommended: 1
+    green_set: [1, 2]
+    yellow_set: [0]
+    rationale: "Probing avoids PMTU black-hole stalls behind broken ICMP paths."

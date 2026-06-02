@@ -1,0 +1,94 @@
+---
+# Self-guarding: locate postgresql.conf (Debian + RHEL layouts), parse the
+# effective settings (main + conf.d + auto.conf, last wins) into doctor_facts.
+# Reads config only — no database connection.
+- name: "[postgres] locate and parse configuration (read-only)"
+  ansible.builtin.shell: |
+    set +e
+    confs=$(ls /etc/postgresql/*/main/postgresql.conf \
+               /var/lib/pgsql/data/postgresql.conf \
+               /var/lib/pgsql/*/data/postgresql.conf \
+               /var/lib/postgresql/data/postgresql.conf \
+               2>/dev/null)
+    main=$(printf '%s\n' $confs | head -1)
+    if [ -z "$main" ]; then echo "detected: false"; exit 0; fi
+    dir=$(dirname "$main")
+    files="$main"
+    [ -d "$dir/conf.d" ] && files="$files $(ls "$dir"/conf.d/*.conf 2>/dev/null)"
+    [ -f "$dir/postgresql.auto.conf" ] && files="$files $dir/postgresql.auto.conf"
+    get() {
+      grep -hiE "^[[:space:]]*$1[[:space:]]*=" $files 2>/dev/null | tail -1 \
+        | sed -E "s/^[^=]*=[[:space:]]*//; s/[[:space:]]*#.*$//; s/^'//; s/'[[:space:]]*$//; s/[[:space:]]*$//"
+    }
+    to_mb() {
+      v=$(printf '%s' "$1" | tr 'A-Z' 'a-z' | tr -d ' ')
+      case "$v" in
+        *kb) echo $(( ${v%kb} / 1024 ));;
+        *mb) echo ${v%mb};;
+        *gb) echo $(( ${v%gb} * 1024 ));;
+        *tb) echo $(( ${v%tb} * 1024 * 1024 ));;
+        ''|*[!0-9]*) echo "";;
+        *)   echo $(( v * 8 / 1024 ));;
+      esac
+    }
+    echo "detected: true"
+    echo "data_dir: \"$dir\""
+    for k in shared_buffers effective_cache_size work_mem maintenance_work_mem \
+             max_connections random_page_cost effective_io_concurrency \
+             checkpoint_completion_target max_wal_size wal_compression \
+             synchronous_commit huge_pages autovacuum listen_addresses; do
+      echo "$k: \"$(get "$k")\""
+    done
+    echo "shared_buffers_mb: \"$(to_mb "$(get shared_buffers)")\""
+    echo "effective_cache_size_mb: \"$(to_mb "$(get effective_cache_size)")\""
+  args:
+    executable: /bin/sh
+  register: _pg
+  failed_when: false
+  changed_when: false
+
+- name: "[postgres] parse probe output"
+  ansible.builtin.set_fact:
+    _pgc: "{{ _pg.stdout | from_yaml }}"
+
+- name: "[postgres] register facts"
+  ansible.builtin.set_fact:
+    doctor_pg_detected: "{{ _pgc.detected | bool }}"
+    doctor_pg_data_dir: "{{ _pgc.data_dir | default('') }}"
+    doctor_facts: "{{ doctor_facts | combine(_pg_facts) }}"
+  vars:
+    _pg_facts:
+      pg.shared_buffers: "{{ _pgc.shared_buffers | default('') }}"
+      pg.shared_buffers_mb: "{{ _pgc.shared_buffers_mb | default('') | string if (_pgc.shared_buffers_mb | default('')) != '' else '__MISSING__' }}"
+      pg.effective_cache_size: "{{ _pgc.effective_cache_size | default('') }}"
+      pg.effective_cache_size_mb: "{{ _pgc.effective_cache_size_mb | default('') | string if (_pgc.effective_cache_size_mb | default('')) != '' else '__MISSING__' }}"
+      pg.work_mem: "{{ _pgc.work_mem | default('') }}"
+      pg.maintenance_work_mem: "{{ _pgc.maintenance_work_mem | default('') }}"
+      pg.max_connections: "{{ _pgc.max_connections | default('') }}"
+      pg.random_page_cost: "{{ _pgc.random_page_cost | default('') }}"
+      pg.effective_io_concurrency: "{{ _pgc.effective_io_concurrency | default('') }}"
+      pg.checkpoint_completion_target: "{{ _pgc.checkpoint_completion_target | default('') }}"
+      pg.max_wal_size: "{{ _pgc.max_wal_size | default('') }}"
+      pg.wal_compression: "{{ _pgc.wal_compression | default('') }}"
+      pg.synchronous_commit: "{{ _pgc.synchronous_commit | default('') }}"
+      pg.huge_pages: "{{ _pgc.huge_pages | default('') }}"
+      pg.autovacuum: "{{ _pgc.autovacuum | default('') }}"
+      pg.listen_addresses: "{{ _pgc.listen_addresses | default('') }}"
+
+# When Postgres is absent, blank the catalog (skips the scalar engine) and
+# emit a single grey "not detected" row instead of many empty ones.
+- name: "[postgres] not detected — skip scalar checks"
+  ansible.builtin.set_fact:
+    module_catalog: []
+    doctor_results: "{{ doctor_results + [_row] }}"
+  vars:
+    _row:
+      module: postgres
+      category: PostgreSQL
+      key: pg.detected
+      label: PostgreSQL
+      current: not detected
+      recommended: "—"
+      status: grey
+      rationale: "No postgresql.conf found in the standard locations; module skipped."
+  when: not doctor_pg_detected

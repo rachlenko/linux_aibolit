@@ -1,0 +1,76 @@
+---
+# Self-guarding: locate my.cnf across Debian/RHEL layouts, parse server options
+# into doctor_facts. Reads config only — no database connection.
+- name: "[mysql] locate and parse configuration (read-only)"
+  ansible.builtin.shell: |
+    set +e
+    files=$(ls /etc/my.cnf /etc/mysql/my.cnf /etc/mysql/mariadb.cnf 2>/dev/null;
+            ls /etc/my.cnf.d/*.cnf /etc/mysql/conf.d/*.cnf \
+               /etc/mysql/mariadb.conf.d/*.cnf 2>/dev/null)
+    if [ -z "$files" ]; then echo "detected: false"; exit 0; fi
+    get() {
+      grep -hiE "^[[:space:]]*$1[[:space:]]*=" $files 2>/dev/null | tail -1 \
+        | sed -E "s/^[^=]*=[[:space:]]*//; s/[[:space:]]*#.*$//; s/[[:space:]]*$//"
+    }
+    to_mb() {
+      v=$(printf '%s' "$1" | tr 'A-Z' 'a-z' | tr -d ' ')
+      case "$v" in
+        *k) echo $(( ${v%k} / 1024 ));;
+        *m) echo ${v%m};;
+        *g) echo $(( ${v%g} * 1024 ));;
+        ''|*[!0-9]*) echo "";;
+        *)  echo $(( v / 1048576 ));;
+      esac
+    }
+    echo "detected: true"
+    for k in innodb_buffer_pool_size innodb_log_file_size innodb_flush_log_at_trx_commit \
+             innodb_flush_method innodb_file_per_table innodb_io_capacity max_connections \
+             table_open_cache tmp_table_size skip_name_resolve query_cache_type; do
+      echo "$k: \"$(get "$k")\""
+    done
+    echo "innodb_buffer_pool_size_mb: \"$(to_mb "$(get innodb_buffer_pool_size)")\""
+  args:
+    executable: /bin/sh
+  register: _my
+  failed_when: false
+  changed_when: false
+
+- name: "[mysql] parse probe output"
+  ansible.builtin.set_fact:
+    _myc: "{{ _my.stdout | from_yaml }}"
+
+- name: "[mysql] register facts"
+  ansible.builtin.set_fact:
+    doctor_mysql_detected: "{{ _myc.detected | bool }}"
+    doctor_facts: "{{ doctor_facts | combine(_my_facts) }}"
+  vars:
+    _bp: "{{ _myc.innodb_buffer_pool_size_mb | default('') }}"
+    _my_facts:
+      mysql.innodb_buffer_pool_size: "{{ _myc.innodb_buffer_pool_size | default('') }}"
+      mysql.innodb_buffer_pool_size_mb: "{{ _bp | string if _bp != '' else '__MISSING__' }}"
+      mysql.innodb_log_file_size: "{{ _myc.innodb_log_file_size | default('') }}"
+      mysql.innodb_flush_log_at_trx_commit: "{{ _myc.innodb_flush_log_at_trx_commit | default('') }}"
+      mysql.innodb_flush_method: "{{ _myc.innodb_flush_method | default('') }}"
+      mysql.innodb_file_per_table: "{{ _myc.innodb_file_per_table | default('') }}"
+      mysql.innodb_io_capacity: "{{ _myc.innodb_io_capacity | default('') }}"
+      mysql.max_connections: "{{ _myc.max_connections | default('') }}"
+      mysql.table_open_cache: "{{ _myc.table_open_cache | default('') }}"
+      mysql.tmp_table_size: "{{ _myc.tmp_table_size | default('') }}"
+      mysql.skip_name_resolve: "{{ _myc.skip_name_resolve | default('') }}"
+      mysql.query_cache_type: "{{ _myc.query_cache_type | default('') }}"
+
+- name: "[mysql] not detected — skip scalar checks"
+  ansible.builtin.set_fact:
+    module_catalog: []
+    doctor_results: "{{ doctor_results + [_row] }}"
+  vars:
+    _row:
+      module: mysql
+      category: MySQL
+      key: mysql.detected
+      label: MySQL / MariaDB
+      current: not detected
+      recommended: "—"
+      status: grey
+      rationale: "No my.cnf found in the standard locations; module skipped."
+  when: not doctor_mysql_detected

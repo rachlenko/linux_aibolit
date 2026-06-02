@@ -1,0 +1,86 @@
+---
+# Public interface under test: the shared scalar rule engine
+# (tasks/engine_scalar.yml -> tasks/eval_row.yml) and its mapping of every
+# rule type to the green / yellow / red / grey status. This is the contract
+# every module's catalog.yml relies on, so we exercise it directly with a
+# synthetic catalog and synthetic facts — independent of the host's real
+# configuration, so the result is deterministic everywhere.
+
+- name: Seed the engine inputs (facts the synthetic catalog will look up)
+  ansible.builtin.set_fact:
+    doctor_module: enginetest
+    doctor_results: []
+    doctor_facts:
+      t_max_green: 5
+      t_max_yellow: 30
+      t_max_red: 100
+      t_min_green: 200
+      t_min_yellow: 70
+      t_min_red: 10
+      t_equals_green: 0
+      t_equals_yellow: 1
+      t_equals_red: 9
+      t_inset_green: never
+      t_inset_yellow: madvise
+      t_inset_red: always
+      t_bool_green: "true"
+      t_bool_red: "false"
+      t_info: anything
+      # t_missing is intentionally absent -> must render grey
+
+- name: Run the scalar engine over a catalog covering every rule type
+  ansible.builtin.include_role:
+    name: rachlenko.linux_aibolit.linux_doctor
+    tasks_from: engine_scalar.yml
+  vars:
+    module_catalog:
+      - {key: t_max_green, label: max green, category: T, rule: max, recommended: 10, yellow_max: 60}
+      - {key: t_max_yellow, label: max yellow, category: T, rule: max, recommended: 10, yellow_max: 60}
+      - {key: t_max_red, label: max red, category: T, rule: max, recommended: 10, yellow_max: 60}
+      - {key: t_min_green, label: min green, category: T, rule: min, recommended: 100, yellow_min: 50}
+      - {key: t_min_yellow, label: min yellow, category: T, rule: min, recommended: 100, yellow_min: 50}
+      - {key: t_min_red, label: min red, category: T, rule: min, recommended: 100, yellow_min: 50}
+      - {key: t_equals_green, label: equals green, category: T, rule: equals, recommended: 0, yellow_set: [1, 2]}
+      - {key: t_equals_yellow, label: equals yellow, category: T, rule: equals, recommended: 0, yellow_set: [1, 2]}
+      - {key: t_equals_red, label: equals red, category: T, rule: equals, recommended: 0, yellow_set: [1, 2]}
+      - {key: t_inset_green, label: in_set green, category: T, rule: in_set, recommended: never, green_set: [never], yellow_set: [madvise]}
+      - {key: t_inset_yellow, label: in_set yellow, category: T, rule: in_set, recommended: never, green_set: [never], yellow_set: [madvise]}
+      - {key: t_inset_red, label: in_set red, category: T, rule: in_set, recommended: never, green_set: [never], yellow_set: [madvise]}
+      - {key: t_bool_green, label: bool green, category: T, rule: bool, recommended: true}
+      - {key: t_bool_red, label: bool red, category: T, rule: bool, recommended: true}
+      - {key: t_info, label: info row, category: T, rule: info, recommended: context}
+      - {key: t_missing, label: missing row, category: T, rule: max, recommended: 10, yellow_max: 60}
+
+- name: Index the produced rows by key -> status
+  ansible.builtin.set_fact:
+    _engine_status: "{{ dict(doctor_results | map(attribute='key') | list | zip(doctor_results | map(attribute='status') | list)) }}"
+
+- name: Every rule type maps to the expected colour
+  ansible.builtin.assert:
+    quiet: true
+    that:
+      - _engine_status['t_max_green'] == 'green'
+      - _engine_status['t_max_yellow'] == 'yellow'
+      - _engine_status['t_max_red'] == 'red'
+      - _engine_status['t_min_green'] == 'green'
+      - _engine_status['t_min_yellow'] == 'yellow'
+      - _engine_status['t_min_red'] == 'red'
+      - _engine_status['t_equals_green'] == 'green'
+      - _engine_status['t_equals_yellow'] == 'yellow'
+      - _engine_status['t_equals_red'] == 'red'
+      - _engine_status['t_inset_green'] == 'green'
+      - _engine_status['t_inset_yellow'] == 'yellow'
+      - _engine_status['t_inset_red'] == 'red'
+      - _engine_status['t_bool_green'] == 'green'
+      - _engine_status['t_bool_red'] == 'red'
+      - _engine_status['t_info'] == 'grey'
+      - _engine_status['t_missing'] == 'grey'
+    success_msg: "Rule engine classification is correct for all six rule types."
+    fail_msg: "Unexpected statuses from the rule engine: {{ _engine_status }}"
+
+- name: A missing value renders an em dash and is never counted as a failure
+  ansible.builtin.assert:
+    quiet: true
+    that:
+      - (doctor_results | selectattr('key', 'equalto', 't_missing') | first).current == '—'
+      - doctor_results | length == 16

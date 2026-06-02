@@ -1,0 +1,3 @@
+---
+# Storage checks are entirely per-disk and dynamic; see analyze.yml.
+module_catalog: []

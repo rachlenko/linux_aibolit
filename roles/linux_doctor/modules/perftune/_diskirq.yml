@@ -1,0 +1,106 @@
+---
+# Storage-controller IRQ spread + per-device-class I/O-profile targets.
+
+# Aggregate controller IRQ affinity into distinct-core counts per controller.
+# Emits bare "base|corecount" lines (one per controller); virtio is narrowed to
+# request (block) queues so virtio-net IRQs are not miscounted as storage.
+- name: "[perftune] compute disk-controller IRQ core spread"
+  ansible.builtin.shell: |
+    set +e
+    grep -E 'nvme|ahci|virtio' /proc/interrupts 2>/dev/null | while read -r line; do
+      case "$line" in *nvme*|*ahci*|*virtio*req*) ;; *) continue;; esac
+      irq=$(printf '%s' "$line" | awk '{print $1}' | tr -d ':')
+      case "$irq" in ''|*[!0-9]*) continue;; esac
+      name=$(printf '%s' "$line" | awk '{print $NF}')
+      base=$(printf '%s' "$name" | sed -E 's/^([a-zA-Z]+[0-9]*).*/\1/')
+      a=$(cat "/proc/irq/$irq/smp_affinity_list" 2>/dev/null)
+      for tok in $(printf '%s' "$a" | tr ',' ' '); do
+        lo=${tok%%-*}; hi=${tok##*-}
+        case "$lo$hi" in ''|*[!0-9]*) continue;; esac
+        c=$lo
+        while [ "$c" -le "$hi" ] 2>/dev/null; do echo "$base $c"; c=$((c + 1)); done
+      done
+    done | sort -u | awk '{cnt[$1]++} END {for (b in cnt) print b"|"cnt[b]}'
+  args:
+    executable: /bin/sh
+  register: _dirq
+  failed_when: false
+  changed_when: false
+
+- name: "[perftune] build controller IRQ rows"
+  ansible.builtin.set_fact:
+    doctor_results: "{{ doctor_results + ((_rowyaml | from_yaml) or []) }}"
+  vars:
+    _groups: "{{ _dirq.stdout_lines | default([]) | select('match', '.+\\|[0-9]+') | list }}"
+    _rowyaml: |
+      {% for g in _groups %}
+      - module: perftune
+        category: Perftune / Disk IRQ
+        key: "perf.diskirq.{{ g.split('|')[0] }}"
+        label: "Controller {{ g.split('|')[0] }} IRQ spread"
+        current: "{{ g.split('|')[1] }} core(s)"
+        recommended: "spread across all cores (0-{{ (perf_ncpu | int) - 1 }})"
+        status: "{{ 'green' if (g.split('|')[1] | int) >= 2 else 'yellow' }}"
+        rationale: "NVMe/AHCI/virtio completion IRQs scale by spreading across cores; a single-core pin serialises completions and caps IOPS."
+      {% endfor %}
+
+- name: "[perftune] no storage-controller IRQs found"
+  ansible.builtin.set_fact:
+    doctor_results: "{{ doctor_results + [_row] }}"
+  vars:
+    _row:
+      module: perftune
+      category: Perftune / Disk IRQ
+      key: perf.diskirq.none
+      label: Storage-controller IRQs
+      current: "—"
+      recommended: "—"
+      status: grey
+      rationale: "No nvme/ahci/virtio-blk controller IRQs visible (virtualised or unsupported controller)."
+  when: (_dirq.stdout_lines | default([]) | select('match', '.+\\|[0-9]+') | list | length) == 0
+
+# Per-device-class I/O-profile targets (info rows; computed target vs the
+# generic floors the storage module already checks).
+- name: "[perftune] build I/O-profile rows for present device classes"
+  ansible.builtin.set_fact:
+    _io_entries: "{{ _entries }}"
+  vars:
+    _disks: "{{ doctor_perf_disks_raw | default([]) }}"
+    _has_nvme: "{{ (_disks | select('match', '^nvme') | list | length) > 0 }}"
+    _has_sata_ssd: "{{ (_disks | select('search', ':0$') | reject('match', '^nvme') | list | length) > 0 }}"
+    _has_hdd: "{{ (_disks | select('search', ':1$') | list | length) > 0 }}"
+    _e_nvme:
+      module: perftune
+      category: Perftune / I/O profile
+      key: perf.ioprofile.nvme
+      label: "I/O profile — NVMe"
+      rule: info
+      current: "per-device — see Storage section"
+      recommended: "nr_requests 1023, read_ahead_kb 128"
+      rationale: "Deep queues exploit NVMe parallelism; small read-ahead avoids wasting bandwidth on random I/O. Cross-check the per-disk Storage rows."
+    _e_ssd:
+      module: perftune
+      category: Perftune / I/O profile
+      key: perf.ioprofile.sata_ssd
+      label: "I/O profile — SATA SSD"
+      rule: info
+      current: "per-device — see Storage section"
+      recommended: "nr_requests 256, read_ahead_kb 128"
+      rationale: "Moderate queue depth fits a single SATA link; small read-ahead suits low-seek-cost flash. Cross-check the per-disk Storage rows."
+    _e_hdd:
+      module: perftune
+      category: Perftune / I/O profile
+      key: perf.ioprofile.hdd
+      label: "I/O profile — HDD"
+      rule: info
+      current: "per-device — see Storage section"
+      recommended: "nr_requests 128, read_ahead_kb 4096"
+      rationale: "Large read-ahead amortises seeks on sequential workloads; deep queues add little on a single spindle. Cross-check the per-disk Storage rows."
+    _entries: "{{ ([_e_nvme] if (_has_nvme | bool) else []) + ([_e_ssd] if (_has_sata_ssd | bool) else []) + ([_e_hdd] if (_has_hdd | bool) else []) }}"
+
+- name: "[perftune] evaluate I/O-profile rows"
+  ansible.builtin.include_tasks: "{{ role_path }}/tasks/eval_row.yml"
+  loop: "{{ _io_entries | default([]) }}"
+  loop_control:
+    loop_var: entry
+    label: "{{ entry.key }}"

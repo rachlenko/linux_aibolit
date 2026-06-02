@@ -1,0 +1,22 @@
+---
+- name: "[storage] no block devices found"
+  ansible.builtin.set_fact:
+    doctor_results: "{{ doctor_results + [_row] }}"
+  vars:
+    _row:
+      module: storage
+      category: Storage
+      key: storage.none
+      label: Block devices
+      current: "—"
+      recommended: "—"
+      status: grey
+      rationale: "No inspectable block devices (container or unusual virtualisation)."
+  when: doctor_disks | default([]) | length == 0
+
+- name: "[storage] analyse each disk"
+  ansible.builtin.include_tasks: _disk.yml
+  loop: "{{ doctor_disks | default([]) }}"
+  loop_control:
+    loop_var: disk
+    label: "{{ disk }}"

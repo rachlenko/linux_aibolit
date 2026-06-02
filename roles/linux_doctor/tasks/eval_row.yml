@@ -1,0 +1,39 @@
+---
+# Shared row evaluator. Maps one check `entry` to a green/yellow/red/grey row
+# and appends it to doctor_results. Used by the scalar engine and by dynamic
+# analyzers (which pass `current` directly instead of via doctor_facts).
+#
+# entry fields:
+#   key, label, category, rule, recommended, rationale
+#   current      (optional) resolved value; else looked up in doctor_facts[key]
+#   module       (optional) defaults to the current doctor_module
+#   rule = max    -> green <= recommended, yellow <= yellow_max, else red
+#   rule = min    -> green >= recommended, yellow >= yellow_min, else red
+#   rule = equals -> green == recommended, yellow in yellow_set, else red
+#   rule = in_set -> green in green_set, yellow in yellow_set, else red
+#   rule = bool   -> green when truthiness matches recommended, else red
+#   rule = info   -> always grey (informational context row)
+- name: "eval {{ entry.key }}"
+  ansible.builtin.set_fact:
+    doctor_results: "{{ doctor_results + [_row] }}"
+  vars:
+    _cur: "{{ entry.current if entry.current is defined else (doctor_facts[entry.key] | default('__MISSING__')) }}"
+    _missing: "{{ (_cur | string) in ['__MISSING__', ''] }}"
+    _status: >-
+      {% if _missing %}grey
+      {%- elif entry.rule == 'info' %}grey
+      {%- elif entry.rule == 'max' %}{% if (_cur|float) <= (entry.recommended|float) %}green{% elif (_cur|float) <= (entry.yellow_max|float) %}yellow{% else %}red{% endif %}
+      {%- elif entry.rule == 'min' %}{% if (_cur|float) >= (entry.recommended|float) %}green{% elif (_cur|float) >= (entry.yellow_min|float) %}yellow{% else %}red{% endif %}
+      {%- elif entry.rule == 'equals' %}{% if (_cur|string) == (entry.recommended|string) %}green{% elif (_cur|string) in (entry.yellow_set | default([]) | map('string') | list) %}yellow{% else %}red{% endif %}
+      {%- elif entry.rule == 'in_set' %}{% if (_cur|string) in (entry.green_set | default([]) | map('string') | list) %}green{% elif (_cur|string) in (entry.yellow_set | default([]) | map('string') | list) %}yellow{% else %}red{% endif %}
+      {%- elif entry.rule == 'bool' %}{% set _t = ['true','1','yes','on'] %}{% if ((_cur|string|lower) in _t) == ((entry.recommended|string|lower) in _t) %}green{% else %}red{% endif %}
+      {%- else %}grey{% endif %}
+    _row:
+      module: "{{ entry.module | default(doctor_module) }}"
+      category: "{{ entry.category | default('General') }}"
+      key: "{{ entry.key }}"
+      label: "{{ entry.label }}"
+      current: "{{ '—' if _missing else _cur }}"
+      recommended: "{{ entry.recommended | default('—') }}"
+      status: "{{ _status | trim }}"
+      rationale: "{{ entry.rationale | default('') }}"

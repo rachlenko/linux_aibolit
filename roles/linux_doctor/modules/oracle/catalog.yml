@@ -1,0 +1,163 @@
+---
+# Oracle's well-known OS prerequisites. Kernel params are sysctl-sourced (read
+# via the shared collector); oracle-user limits are custom. Pfile params and
+# HugePages-vs-SGA sizing are in analyze.yml. collect.yml empties this list when
+# Oracle is not detected.
+module_catalog:
+  - key: fs.aio-max-nr
+    category: Oracle / Kernel
+    label: fs.aio-max-nr
+    source: sysctl
+    rule: min
+    recommended: 1048576
+    yellow_min: 524288
+    rationale: "Async I/O request ceiling; Oracle requires at least 1048576."
+
+  - key: fs.file-max
+    category: Oracle / Kernel
+    label: fs.file-max
+    source: sysctl
+    rule: min
+    recommended: 6815744
+    yellow_min: 1000000
+    rationale: "Oracle's documented minimum is 6815744 system-wide file handles."
+
+  - key: kernel.shmmni
+    category: Oracle / Kernel
+    label: kernel.shmmni
+    source: sysctl
+    rule: min
+    recommended: 4096
+    yellow_min: 2048
+    rationale: "Max number of shared-memory segments; Oracle requires ≥4096."
+
+  - key: kernel.shmall
+    category: Oracle / Kernel
+    label: kernel.shmall
+    source: sysctl
+    rule: min
+    recommended: 2097152
+    yellow_min: 1048576
+    rationale: "Total shared memory in pages; must cover the SGA across all instances."
+
+  - key: kernel.shmmax
+    category: Oracle / Kernel
+    label: kernel.shmmax
+    source: sysctl
+    rule: info
+    recommended: "≈ half of physical RAM (bytes)"
+    rationale: "Largest single shared-memory segment; size to at least the SGA."
+
+  - key: kernel.sem
+    category: Oracle / Kernel
+    label: kernel.sem
+    source: sysctl
+    rule: info
+    recommended: "250 32000 100 128"
+    rationale: "semmsl semmns semopm semmni — Oracle's documented baseline."
+
+  - key: net.ipv4.ip_local_port_range
+    category: Oracle / Network
+    label: ip_local_port_range
+    source: sysctl
+    rule: info
+    recommended: "9000 65500"
+    rationale: "Oracle expects this exact ephemeral range for its networking."
+
+  - key: net.core.rmem_default
+    category: Oracle / Network
+    label: net.core.rmem_default
+    source: sysctl
+    rule: min
+    recommended: 262144
+    yellow_min: 131072
+    rationale: "Oracle prerequisite default receive buffer size."
+
+  - key: net.core.rmem_max
+    category: Oracle / Network
+    label: net.core.rmem_max
+    source: sysctl
+    rule: min
+    recommended: 4194304
+    yellow_min: 1048576
+    rationale: "Oracle prerequisite maximum receive buffer size."
+
+  - key: net.core.wmem_default
+    category: Oracle / Network
+    label: net.core.wmem_default
+    source: sysctl
+    rule: min
+    recommended: 262144
+    yellow_min: 131072
+    rationale: "Oracle prerequisite default send buffer size."
+
+  - key: net.core.wmem_max
+    category: Oracle / Network
+    label: net.core.wmem_max
+    source: sysctl
+    rule: min
+    recommended: 1048576
+    yellow_min: 524288
+    rationale: "Oracle prerequisite maximum send buffer size."
+
+  - key: kernel.panic_on_oops
+    category: Oracle / Kernel
+    label: kernel.panic_on_oops
+    source: sysctl
+    rule: in_set
+    recommended: 1
+    green_set: [1]
+    yellow_set: [0]
+    rationale: "Oracle prerequisite: panic on oops so clusterware can fence cleanly."
+
+  - key: oracle.nofile_soft
+    category: Oracle / Limits
+    label: oracle nofile (soft)
+    source: custom
+    rule: min
+    recommended: 1024
+    yellow_min: 1024
+    rationale: "Oracle prerequisite soft open-file limit for the oracle/grid users."
+
+  - key: oracle.nofile_hard
+    category: Oracle / Limits
+    label: oracle nofile (hard)
+    source: custom
+    rule: min
+    recommended: 65536
+    yellow_min: 8192
+    rationale: "Oracle prerequisite hard open-file limit for the oracle/grid users."
+
+  - key: oracle.nproc_soft
+    category: Oracle / Limits
+    label: oracle nproc (soft)
+    source: custom
+    rule: min
+    recommended: 2047
+    yellow_min: 1024
+    rationale: "Oracle prerequisite soft process limit for the oracle/grid users."
+
+  - key: oracle.nproc_hard
+    category: Oracle / Limits
+    label: oracle nproc (hard)
+    source: custom
+    rule: min
+    recommended: 16384
+    yellow_min: 8192
+    rationale: "Oracle prerequisite hard process limit for the oracle/grid users."
+
+  - key: oracle.stack_soft
+    category: Oracle / Limits
+    label: oracle stack (soft, KB)
+    source: custom
+    rule: min
+    recommended: 10240
+    yellow_min: 8192
+    rationale: "Oracle prerequisite soft stack size for the oracle/grid users."
+
+  - key: oracle.memlock
+    category: Oracle / Limits
+    label: oracle memlock (KB)
+    source: custom
+    rule: info
+    rationale: "Must exceed the SGA when using HugePages so it can be locked in memory."

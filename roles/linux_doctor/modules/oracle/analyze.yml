@@ -1,0 +1,77 @@
+---
+# HugePages-vs-SGA context and text pfile params (when present). SPFILE is
+# binary and would need sqlplus, so it is intentionally out of scope.
+- name: "[oracle] read HugePages and any text pfile (read-only)"
+  ansible.builtin.shell: |
+    set +e
+    echo "hp_total: \"$(awk '/^HugePages_Total/{print $2}' /proc/meminfo 2>/dev/null)\""
+    echo "hp_size_kb: \"$(awk '/^Hugepagesize/{print $2}' /proc/meminfo 2>/dev/null)\""
+    pfile=$(ls $ORACLE_HOME/dbs/init*.ora /opt/oracle/*/dbs/init*.ora 2>/dev/null | grep -v 'init.ora$' | head -1)
+    get() { [ -n "$pfile" ] && grep -hiE "^[[:space:]]*$1[[:space:]]*=" "$pfile" 2>/dev/null \
+              | tail -1 | sed -E "s/^[^=]*=[[:space:]]*//; s/[[:space:]]*#.*$//; s/[[:space:]]*$//"; }
+    echo "pfile: \"$pfile\""
+    echo "sga_target: \"$(get sga_target)\""
+    echo "pga_aggregate_target: \"$(get pga_aggregate_target)\""
+    echo "db_block_size: \"$(get db_block_size)\""
+    echo "processes: \"$(get processes)\""
+  args:
+    executable: /bin/sh
+  register: _ora_an
+  failed_when: false
+  changed_when: false
+  when: doctor_oracle_detected | default(false)
+
+- name: "[oracle] build analysis rows"
+  ansible.builtin.set_fact:
+    _ora_rows: "{{ _rows }}"
+  vars:
+    _a: "{{ _ora_an.stdout | from_yaml }}"
+    _hp_total: "{{ _a.hp_total | default('') }}"
+    _hp_kb: "{{ _a.hp_size_kb | default('') }}"
+    _hp_mb: "{{ ((_hp_total | int) * (_hp_kb | int) / 1024) | round | int if (_hp_total | default('')) != '' and (_hp_total | int) > 0 else '__MISSING__' }}"
+    _rows:
+      - module: oracle
+        category: Oracle / Memory
+        key: oracle.hugepages
+        label: HugePages allocated
+        rule: info
+        current: "{{ (_hp_total ~ ' pages (' ~ _hp_mb ~ ' MB)') if (_hp_mb != '__MISSING__') else '__MISSING__' }}"
+        recommended: "≥ SGA size; set vm.nr_hugepages accordingly"
+        rationale: "Oracle should run on explicit HugePages (with THP off) so the SGA is locked and TLB-efficient."
+      - module: oracle
+        category: Oracle / pfile
+        key: oracle.sga_target
+        label: sga_target (pfile)
+        rule: info
+        current: "{{ _a.sga_target | default('') if (_a.sga_target | default('')) != '' else '__MISSING__' }}"
+        rationale: "From text pfile when present; SPFILE values require sqlplus (out of scope)."
+      - module: oracle
+        category: Oracle / pfile
+        key: oracle.pga_aggregate_target
+        label: pga_aggregate_target (pfile)
+        rule: info
+        current: "{{ _a.pga_aggregate_target | default('') if (_a.pga_aggregate_target | default('')) != '' else '__MISSING__' }}"
+        rationale: "From text pfile when present."
+      - module: oracle
+        category: Oracle / pfile
+        key: oracle.db_block_size
+        label: db_block_size (pfile)
+        rule: info
+        current: "{{ _a.db_block_size | default('') if (_a.db_block_size | default('')) != '' else '__MISSING__' }}"
+        rationale: "From text pfile when present."
+      - module: oracle
+        category: Oracle / pfile
+        key: oracle.processes
+        label: processes (pfile)
+        rule: info
+        current: "{{ _a.processes | default('') if (_a.processes | default('')) != '' else '__MISSING__' }}"
+        rationale: "Drives semaphore and FD requirements; cross-check kernel.sem and nofile."
+  when: doctor_oracle_detected | default(false)
+
+- name: "[oracle] evaluate analysis rows"
+  ansible.builtin.include_tasks: "{{ role_path }}/tasks/eval_row.yml"
+  loop: "{{ _ora_rows | default([]) }}"
+  loop_control:
+    loop_var: entry
+    label: "{{ entry.key }}"
+  when: doctor_oracle_detected | default(false)

@@ -1,0 +1,17 @@
+---
+# Collection entry-point playbook. Run after installing the collection:
+#
+#   ansible-galaxy collection install rachlenko.linux_aibolit
+#   ansible-playbook -i inventory.ini rachlenko.linux_aibolit.audit
+#
+# Read-only by default. Some config files need privilege; override per run:
+#   ansible-playbook -i inventory.ini rachlenko.linux_aibolit.audit -e doctor_become=true -K
+#
+# Enable opt-in component modules per run:
+#   -e '{"doctor_extra_modules": ["postgres", "ceph"]}'
+- name: Linux Conf Doctor (Aibolit) — read-only configuration audit
+  hosts: all
+  gather_facts: true
+  become: "{{ doctor_become | default(false) }}"
+  roles:
+    - role: rachlenko.linux_aibolit.linux_doctor

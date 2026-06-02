@@ -1,0 +1,5 @@
+---
+# Minimum ansible-core the collection is tested against. The role uses only
+# builtin modules (slurp, stat, set_fact, template, file, include_tasks) and
+# role argument validation, all available since 2.15.
+requires_ansible: ">=2.15.0"

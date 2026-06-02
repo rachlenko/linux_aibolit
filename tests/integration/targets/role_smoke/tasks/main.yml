@@ -1,0 +1,51 @@
+---
+# Public interface under test: running the linux_doctor role end-to-end. It must
+# render exactly one HTML report per host on the control node, emit only valid
+# status rows, and validate its argument spec. Uses a minimal, fast module set.
+
+- name: Create an isolated report directory on the controller
+  ansible.builtin.tempfile:
+    state: directory
+    suffix: aibolit
+  register: _reportdir
+  delegate_to: localhost
+
+- name: Run the doctor (system modules only, minimal set)
+  ansible.builtin.include_role:
+    name: rachlenko.linux_aibolit.linux_doctor
+  vars:
+    doctor_modules:
+      - kernel
+      - limits
+    doctor_extra_modules: []
+    doctor_report_dir: "{{ _reportdir.path }}"
+
+- name: Stat the rendered report
+  ansible.builtin.stat:
+    path: "{{ _reportdir.path }}/{{ inventory_hostname }}.html"
+  register: _report
+  delegate_to: localhost
+
+- name: Read the rendered report back
+  ansible.builtin.slurp:
+    src: "{{ _reportdir.path }}/{{ inventory_hostname }}.html"
+  register: _report_raw
+  delegate_to: localhost
+
+- name: The report exists, is well-formed, and only contains valid status rows
+  ansible.builtin.assert:
+    quiet: true
+    that:
+      - _report.stat.exists
+      - (_report_raw.content | b64decode) is search('Linux Conf Doctor')
+      - (_report_raw.content | b64decode) is search(inventory_hostname)
+      - doctor_results | length > 0
+      # No row may carry a status outside the documented set.
+      - (doctor_results | map(attribute='status') | unique | difference(['green', 'yellow', 'red', 'grey'])) | length == 0
+    fail_msg: "Report missing, malformed, or contained an unknown status value."
+
+- name: Remove the temporary report directory
+  ansible.builtin.file:
+    path: "{{ _reportdir.path }}"
+    state: absent
+  delegate_to: localhost

@@ -1,0 +1,68 @@
+---
+module_catalog:
+  - key: fs.file-max
+    category: Limits / System
+    label: System-wide max open files
+    source: sysctl
+    rule: min
+    recommended: 1000000
+    yellow_min: 200000
+    rationale: "Kernel ceiling on total open files across the host."
+
+  - key: fs.nr_open
+    category: Limits / System
+    label: Per-process FD ceiling (nr_open)
+    source: sysctl
+    rule: min
+    recommended: 1048576
+    yellow_min: 524288
+    rationale: "Upper bound a process may raise its own nofile limit to."
+
+  - key: fs.file-nr
+    category: Limits / System
+    label: Currently allocated file handles
+    source: custom
+    rule: info
+    rationale: "Live allocation; context for how close the host runs to its ceiling."
+
+  - key: limits.nofile_soft
+    category: Limits / Users
+    label: nofile soft limit (limits.conf)
+    source: custom
+    rule: min
+    recommended: 65535
+    yellow_min: 4096
+    rationale: "Default soft 1024 throttles servers with many sockets/files."
+
+  - key: limits.nofile_hard
+    category: Limits / Users
+    label: nofile hard limit (limits.conf)
+    source: custom
+    rule: min
+    recommended: 65535
+    yellow_min: 8192
+    rationale: "Hard ceiling a user/service may raise its soft limit to."
+
+  - key: limits.systemd_default_nofile
+    category: Limits / systemd
+    label: systemd DefaultLimitNOFILE
+    source: custom
+    rule: min
+    recommended: 65535
+    yellow_min: 4096
+    rationale: "systemd services inherit this unless they override LimitNOFILE."
+
+  - key: limits.pid1_nofile
+    category: Limits / systemd
+    label: PID 1 effective nofile (soft)
+    source: custom
+    rule: info
+    rationale: "Effective limit seen by init; what services actually inherit."
+
+  - key: limits.pam_limits_enabled
+    category: Limits / Users
+    label: pam_limits.so enabled
+    source: custom
+    rule: bool
+    recommended: true
+    rationale: "Without pam_limits, limits.conf is ignored for login sessions."

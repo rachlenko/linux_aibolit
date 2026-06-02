@@ -1,0 +1,108 @@
+---
+# Scalar PostgreSQL checks. RAM-relative sizing and OS cross-refs live in
+# analyze.yml. collect.yml empties this list when Postgres is not detected.
+module_catalog:
+  - key: pg.random_page_cost
+    category: PostgreSQL / Planner
+    label: random_page_cost
+    source: custom
+    rule: max
+    recommended: 1.1
+    yellow_max: 2.0
+    rationale: "Default 4 assumes spinning disks; SSD/NVMe want ~1.1 so the planner uses indexes."
+
+  - key: pg.effective_io_concurrency
+    category: PostgreSQL / Planner
+    label: effective_io_concurrency
+    source: custom
+    rule: min
+    recommended: 200
+    yellow_min: 64
+    rationale: "Higher concurrency lets the planner prefetch on parallel-capable storage."
+
+  - key: pg.max_connections
+    category: PostgreSQL / Connections
+    label: max_connections
+    source: custom
+    rule: max
+    recommended: 200
+    yellow_max: 500
+    rationale: "Very high values waste memory; front a pooler (PgBouncer) instead."
+
+  - key: pg.synchronous_commit
+    category: PostgreSQL / Durability
+    label: synchronous_commit
+    source: custom
+    rule: in_set
+    recommended: "on"
+    green_set: ["on"]
+    yellow_set: [local, remote_write, remote_apply]
+    rationale: "'off' trades durability for speed — safe only if losing recent commits is acceptable."
+
+  - key: pg.wal_compression
+    category: PostgreSQL / WAL
+    label: wal_compression
+    source: custom
+    rule: in_set
+    recommended: "on"
+    green_set: ["on", lz4, zstd, pglz]
+    yellow_set: ["off"]
+    rationale: "Compressing full-page WAL images cuts WAL volume and I/O at light CPU cost."
+
+  - key: pg.checkpoint_completion_target
+    category: PostgreSQL / WAL
+    label: checkpoint_completion_target
+    source: custom
+    rule: min
+    recommended: 0.9
+    yellow_min: 0.7
+    rationale: "Spreading checkpoints over the interval avoids write spikes; modern default is 0.9."
+
+  - key: pg.huge_pages
+    category: PostgreSQL / Memory
+    label: huge_pages
+    source: custom
+    rule: in_set
+    recommended: try
+    green_set: ["on", try]
+    yellow_set: ["off"]
+    rationale: "Huge pages reduce TLB pressure for large shared_buffers."
+
+  - key: pg.autovacuum
+    category: PostgreSQL / Maintenance
+    label: autovacuum
+    source: custom
+    rule: in_set
+    recommended: "on"
+    green_set: ["on"]
+    yellow_set: []
+    rationale: "Disabling autovacuum leads to bloat and eventual transaction-ID wraparound."
+
+  - key: pg.listen_addresses
+    category: PostgreSQL / Network
+    label: listen_addresses
+    source: custom
+    rule: info
+    recommended: "specific IPs (avoid '*' unless intended)"
+    rationale: "'*' exposes the server on every interface; bind only what you need plus firewalling."
+
+  - key: pg.max_wal_size
+    category: PostgreSQL / WAL
+    label: max_wal_size
+    source: custom
+    rule: info
+    rationale: "Larger max_wal_size means fewer checkpoints on write-heavy workloads."
+
+  - key: pg.work_mem
+    category: PostgreSQL / Memory
+    label: work_mem
+    source: custom
+    rule: info
+    rationale: "Per-sort/hash allocation; multiplied by concurrent operations — size with care."
+
+  - key: pg.maintenance_work_mem
+    category: PostgreSQL / Memory
+    label: maintenance_work_mem
+    source: custom
+    rule: info
+    rationale: "Speeds VACUUM and index builds; 512MB–2GB is typical for a dedicated server."

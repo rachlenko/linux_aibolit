@@ -1,0 +1,9 @@
+---
+# Shared scalar comparator. Loops the loaded module_catalog and evaluates each
+# entry against doctor_facts via the shared row evaluator.
+- name: "[{{ doctor_module }}] compare catalog entries"
+  ansible.builtin.include_tasks: eval_row.yml
+  loop: "{{ module_catalog }}"
+  loop_control:
+    loop_var: entry
+    label: "{{ entry.key }}"

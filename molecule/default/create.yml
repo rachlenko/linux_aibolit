@@ -1,0 +1,10 @@
+---
+# No infrastructure to create — the local controller is the test instance.
+- name: Create
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Use the local controller as the test instance
+      ansible.builtin.debug:
+        msg: "Auditing the local controller (read-only)."

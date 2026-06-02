@@ -1,0 +1,68 @@
+---
+# Per-mount analyzer. Derives tokens from the mount options + fill level +
+# fstab style, then evaluates them. Pure read of already-gathered facts.
+- name: "[filesystem] build rows for {{ mount.mount }}"
+  ansible.builtin.set_fact:
+    _mount_rows: "{{ _rows }}"
+  vars:
+    _olist: "{{ mount.options | default('') | split(',') }}"
+    _cat: "Filesystem / {{ mount.mount }}"
+    _total: "{{ mount.size_total | default(0) | int }}"
+    _avail: "{{ mount.size_available | default(0) | int }}"
+    _pct: "{{ (((_total | int) - (_avail | int)) / (_total | int) * 100) | round(1) if (_total | int) > 0 else '__MISSING__' }}"
+    _atime: >-
+      {{ 'strict' if ('strictatime' in _olist)
+         else ('ok' if ('noatime' in _olist or 'relatime' in _olist or 'nodiratime' in _olist)
+               else 'default') }}
+    _discard: "{{ 'continuous' if ('discard' in _olist) else 'periodic' }}"
+    _fstab_line: "{{ (doctor_fstab | default([])) | select('search', '\\s' ~ (mount.mount | regex_escape) ~ '\\s') | first | default('') }}"
+    _fstab_style: >-
+      {{ 'none' if (_fstab_line == '')
+         else ('uuid' if (_fstab_line is match('^(UUID=|LABEL=|PARTUUID=)')) else 'device') }}
+    _rows:
+      - module: filesystem
+        category: "{{ _cat }}"
+        key: "filesystem.{{ mount.mount }}.fill"
+        label: Fill level (%)
+        rule: max
+        current: "{{ _pct }}"
+        recommended: 80
+        yellow_max: 90
+        rationale: "Past ~80% fragmentation rises; past ~90% risks ENOSPC and stalls."
+      - module: filesystem
+        category: "{{ _cat }}"
+        key: "filesystem.{{ mount.mount }}.atime"
+        label: atime behaviour
+        rule: in_set
+        current: "{{ _atime }}"
+        recommended: "noatime/relatime"
+        green_set: [ok]
+        yellow_set: [default]
+        rationale: "strictatime writes metadata on every read; relatime/noatime avoid that I/O."
+      - module: filesystem
+        category: "{{ _cat }}"
+        key: "filesystem.{{ mount.mount }}.discard"
+        label: TRIM strategy
+        rule: in_set
+        current: "{{ _discard }}"
+        recommended: "periodic (fstrim.timer)"
+        green_set: [periodic]
+        yellow_set: [continuous]
+        rationale: "Inline 'discard' adds per-delete latency; a periodic fstrim.timer is gentler."
+      - module: filesystem
+        category: "{{ _cat }}"
+        key: "filesystem.{{ mount.mount }}.fstab_ref"
+        label: fstab device reference
+        rule: in_set
+        current: "{{ _fstab_style }}"
+        recommended: "UUID="
+        green_set: [uuid]
+        yellow_set: [device, none]
+        rationale: "UUID/LABEL survives device renaming (sda→sdb); kernel names do not."
+
+- name: "[filesystem] evaluate {{ mount.mount }} rows"
+  ansible.builtin.include_tasks: "{{ role_path }}/tasks/eval_row.yml"
+  loop: "{{ _mount_rows }}"
+  loop_control:
+    loop_var: entry
+    label: "{{ entry.key }}"

@@ -1,0 +1,22 @@
+---
+- name: "[filesystem] read fstab"
+  ansible.builtin.slurp:
+    src: /etc/fstab
+  register: _fstab
+  failed_when: false
+  changed_when: false
+
+- name: "[filesystem] select real mounts and parse fstab"
+  ansible.builtin.set_fact:
+    doctor_mounts: >-
+      {{ ansible_facts.mounts | default([])
+         | selectattr('fstype', 'in', _real_fs) | list }}
+    doctor_tmpfs_mounts: >-
+      {{ ansible_facts.mounts | default([])
+         | selectattr('fstype', 'equalto', 'tmpfs') | map(attribute='mount') | list }}
+    doctor_fstab: >-
+      {{ ((_fstab.content | b64decode).split('\n')
+          | map('trim') | select('match', '^[^#].*\S') | list)
+         if (_fstab.content is defined) else [] }}
+  vars:
+    _real_fs: [ext2, ext3, ext4, xfs, btrfs, f2fs, reiserfs, jfs]

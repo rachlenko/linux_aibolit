@@ -1,0 +1,33 @@
+---
+- name: "[cpu] read scaling governor"
+  ansible.builtin.slurp:
+    src: /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+  register: _gov
+  failed_when: false
+  changed_when: false
+
+- name: "[cpu] read active tuned profile"
+  ansible.builtin.slurp:
+    src: /etc/tuned/active_profile
+  register: _tuned
+  failed_when: false
+  changed_when: false
+
+- name: "[cpu] query time-sync state"
+  ansible.builtin.command: timedatectl show -p NTPSynchronized --value
+  register: _ntp
+  failed_when: false
+  changed_when: false
+
+- name: "[cpu] register custom cpu facts"
+  ansible.builtin.set_fact:
+    doctor_facts: "{{ doctor_facts | combine(_cpu_custom) }}"
+  vars:
+    _gov_v: "{{ (_gov.content | b64decode | trim) if (_gov.content is defined) else '__MISSING__' }}"
+    _tuned_v: "{{ (_tuned.content | b64decode | trim) if (_tuned.content is defined) else '__MISSING__' }}"
+    _ntp_v: "{{ (_ntp.stdout | trim | lower) if (_ntp.rc | default(1)) == 0 else '__MISSING__' }}"
+    _cpu_custom:
+      cpu.governor: "{{ _gov_v }}"
+      cpu.count: "{{ ansible_facts.processor_vcpus | default(ansible_facts.processor_count) | default('__MISSING__') }}"
+      cpu.tuned_profile: "{{ _tuned_v if _tuned_v != '' else '__MISSING__' }}"
+      cpu.time_sync: "{{ 'true' if _ntp_v == 'yes' else ('false' if _ntp_v in ['no'] else '__MISSING__') }}"

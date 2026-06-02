@@ -1,0 +1,45 @@
+---
+# Buffer-pool sizing + OS cross-references. Only runs when a server is found.
+- name: "[mysql] build RAM-relative and OS cross-ref rows"
+  ansible.builtin.set_fact:
+    _my_rows: "{{ _rows }}"
+  vars:
+    _ram: "{{ ansible_facts.memtotal_mb | default(0) | int }}"
+    _bp_rec: "{{ (_ram | int * 0.60) | round | int }}"
+    _rows:
+      - module: mysql
+        category: MySQL / Memory
+        key: mysql.buffer_pool_sized
+        label: innodb_buffer_pool_size vs RAM
+        rule: min
+        current: "{{ doctor_facts['mysql.innodb_buffer_pool_size_mb'] | default('__MISSING__') }}"
+        recommended: "{{ _bp_rec }} MB (~60% of {{ _ram }}MB RAM)"
+        yellow_min: "{{ (_ram | int * 0.25) | round | int }}"
+        rationale: "On a dedicated server the buffer pool should hold the hot dataset (~50–70% RAM)."
+      - module: mysql
+        category: MySQL / OS cross-ref
+        key: mysql.os_thp
+        label: Transparent Huge Pages (OS)
+        rule: in_set
+        current: "{{ doctor_facts['kernel.thp'] | default('__MISSING__') }}"
+        recommended: never
+        green_set: [never]
+        yellow_set: [madvise]
+        rationale: "MySQL recommends THP 'never'; 'always' causes allocation stalls under load."
+      - module: mysql
+        category: MySQL / OS cross-ref
+        key: mysql.os_swappiness
+        label: vm.swappiness (OS)
+        rule: max
+        current: "{{ doctor_facts['vm.swappiness'] | default('__MISSING__') }}"
+        recommended: 10
+        yellow_max: 30
+        rationale: "Low swappiness keeps the buffer pool resident rather than swapped out."
+
+- name: "[mysql] evaluate RAM/OS rows"
+  ansible.builtin.include_tasks: "{{ role_path }}/tasks/eval_row.yml"
+  loop: "{{ _my_rows }}"
+  loop_control:
+    loop_var: entry
+    label: "{{ entry.key }}"
+  when: doctor_mysql_detected | default(false)

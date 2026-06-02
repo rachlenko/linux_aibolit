@@ -1,0 +1,201 @@
+---
+# Scalar Ceph checks. Sysctl entries use Ceph-specific thresholds (higher than
+# the generic kernel module). RAM-vs-OSD sizing is in analyze.yml. collect.yml
+# empties this list when Ceph is not detected.
+# Sources: Ceph docs (start/hardware-recommendations, rados/configuration/*),
+# Ceph OSD troubleshooting (pid_max/aio-max-nr), and Proxmox Ceph best practices.
+
+module_catalog:
+  # ---- OS kernel prerequisites (Ceph-specific) ----
+  - key: kernel.pid_max
+    category: Ceph / OS Kernel
+    label: kernel.pid_max
+    source: sysctl
+    rule: min
+    recommended: 4194303
+    yellow_min: 1048576
+    rationale: "OSDs spawn thousands of threads (more during recovery); Ceph recommends the 4194303 maximum."
+
+  - key: fs.aio-max-nr
+    category: Ceph / OS Kernel
+    label: fs.aio-max-nr
+    source: sysctl
+    rule: min
+    recommended: 1048576
+    yellow_min: 262144
+    rationale: "BlueStore uses libaio (~4096 aios/OSD); the 65536 default fails OSD prepare on dense nodes."
+
+  - key: net.core.rmem_max
+    category: Ceph / OS Network
+    label: net.core.rmem_max
+    source: sysctl
+    rule: min
+    recommended: 16777216
+    yellow_min: 4194304
+    rationale: "Large socket buffers help Ceph's replication/recovery throughput on 10GbE+ networks."
+
+  - key: net.core.wmem_max
+    category: Ceph / OS Network
+    label: net.core.wmem_max
+    source: sysctl
+    rule: min
+    recommended: 16777216
+    yellow_min: 4194304
+    rationale: "Large socket buffers help Ceph's replication/recovery throughput on 10GbE+ networks."
+
+  # ---- Data safety (ceph.conf) ----
+  - key: ceph.osd_pool_default_size
+    category: Ceph / Data safety
+    label: osd_pool_default_size (replicas)
+    source: custom
+    rule: min
+    recommended: 3
+    yellow_min: 2
+    rationale: "Three replicas is the default and survives a node failure during maintenance; 2 is risky, 1 is data loss."
+
+  - key: ceph.osd_pool_default_min_size
+    category: Ceph / Data safety
+    label: osd_pool_default_min_size
+    source: custom
+    rule: min
+    recommended: 2
+    yellow_min: 2
+    rationale: "min_size 2 keeps I/O degraded-but-safe; min_size 1 risks data loss if the last replica fails."
+
+  - key: ceph.net_isolation
+    category: Ceph / Data safety
+    label: cluster vs public network
+    source: custom
+    rule: in_set
+    recommended: isolated
+    green_set: [isolated]
+    yellow_set: [shared, unset]
+    rationale: "A dedicated cluster_network keeps replication/recovery traffic off the public path (Proxmox best practice)."
+
+  - key: ceph.public_network
+    category: Ceph / Data safety
+    label: public_network
+    source: custom
+    rule: info
+    rationale: "Front-side client/monitor network; should be an isolated, redundant 10GbE+ fabric."
+
+  - key: ceph.cluster_network
+    category: Ceph / Data safety
+    label: cluster_network
+    source: custom
+    rule: info
+    rationale: "Back-side replication network; keep it unreachable from the public network for security."
+
+  - key: ceph.pg_autoscale_mode
+    category: Ceph / Data safety
+    label: osd_pool_default_pg_autoscale_mode
+    source: custom
+    rule: in_set
+    recommended: "on"
+    green_set: ["on", warn]
+    yellow_set: ["off"]
+    rationale: "The PG autoscaler (on by default) keeps placement-group counts sane as the cluster grows."
+
+  # ---- Security (ceph.conf) ----
+  - key: ceph.auth_cluster_required
+    category: Ceph / Security
+    label: auth_cluster_required
+    source: custom
+    rule: in_set
+    recommended: cephx
+    green_set: [cephx]
+    yellow_set: []
+    rationale: "cephx authenticates daemon-to-daemon traffic; 'none' exposes the cluster to MITM tampering."
+
+  - key: ceph.auth_service_required
+    category: Ceph / Security
+    label: auth_service_required
+    source: custom
+    rule: in_set
+    recommended: cephx
+    green_set: [cephx]
+    yellow_set: []
+    rationale: "cephx authenticates clients to the cluster; disabling it is not recommended."
+
+  - key: ceph.auth_client_required
+    category: Ceph / Security
+    label: auth_client_required
+    source: custom
+    rule: in_set
+    recommended: cephx
+    green_set: [cephx]
+    yellow_set: []
+    rationale: "cephx authenticates the cluster to clients; disabling it is not recommended."
+
+  # ---- Memory (ceph.conf) ----
+  - key: ceph.osd_memory_target
+    category: Ceph / Memory
+    label: osd_memory_target (bytes)
+    source: custom
+    rule: min
+    recommended: 4294967296
+    yellow_min: 2147483648
+    rationale: "≥4 GiB/OSD is the recommended BlueStore cache budget; 2–4 GiB degrades performance, <2 GiB is unsupported."
+
+  # ---- Capacity & monitors (ceph.conf) ----
+  - key: ceph.mon_osd_full_ratio
+    category: Ceph / Capacity
+    label: mon_osd_full_ratio
+    source: custom
+    rule: info
+    recommended: "0.95"
+    rationale: "At this fill the cluster blocks writes; keep real usage well below the nearfull ratio."
+
+  - key: ceph.mon_osd_nearfull_ratio
+    category: Ceph / Capacity
+    label: mon_osd_nearfull_ratio
+    source: custom
+    rule: info
+    recommended: "0.85"
+    rationale: "Warning threshold; size capacity so no OSD passes ~85% even after a node failure."
+
+  - key: ceph.mon_clock_drift_allowed
+    category: Ceph / Monitors
+    label: mon_clock_drift_allowed (s)
+    source: custom
+    rule: info
+    recommended: "0.05"
+    rationale: "Monitors are clock-sensitive; raising this masks the real problem — fix time sync instead."
+
+  # ---- OS cross-references ----
+  - key: ceph.time_sync
+    category: Ceph / OS
+    label: Time synchronised (NTP/chrony)
+    source: custom
+    rule: bool
+    recommended: true
+    rationale: "Clock skew destabilises the monitor quorum; chrony/NTP is mandatory on Ceph hosts."
+
+  - key: ceph.swap_off
+    category: Ceph / OS Memory
+    label: Swap disabled
+    source: custom
+    rule: in_set
+    recommended: absent
+    green_set: [absent]
+    yellow_set: [present]
+    rationale: "Ceph advises against swap on modern systems; swapping an OSD causes severe latency and flapping."
+
+  - key: ceph.os_thp
+    category: Ceph / OS Memory
+    label: Transparent Huge Pages (OS)
+    source: custom
+    rule: in_set
+    recommended: never
+    green_set: [never]
+    yellow_set: [madvise]
+    rationale: "THP 'always' causes allocation stalls under OSD memory pressure; 'never' is the safe choice."
+
+  - key: ceph.osd_nofile
+    category: Ceph / OS Limits
+    label: OSD effective nofile (soft)
+    source: custom
+    rule: min
+    recommended: 1048576
+    yellow_min: 65536
+    rationale: "OSDs open very many sockets/files; cephadm/packages set LimitNOFILE to 1048576."

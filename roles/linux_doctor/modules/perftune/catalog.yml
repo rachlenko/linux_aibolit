@@ -1,0 +1,23 @@
+---
+# Scalar perftune checks. Per-NIC / per-controller / per-class rows are dynamic
+# (see analyze.yml + _nic.yml + _diskirq.yml). This module is host-aware: the
+# 'Recommended' column carries values computed for THIS host, not constants.
+module_catalog:
+  - key: net.core.rps_sock_flow_entries
+    category: Perftune / Network
+    label: RPS global flow table (rps_sock_flow_entries)
+    source: sysctl
+    rule: min
+    recommended: 32768
+    yellow_min: 0
+    rationale: "RFS needs a populated global flow table; 0 disables receive-flow steering (an optional optimisation)."
+
+  - key: perf.irqbalance
+    category: Perftune / IRQ
+    label: irqbalance service
+    source: custom
+    rule: in_set
+    recommended: active
+    green_set: [active]
+    yellow_set: [inactive]
+    rationale: "irqbalance spreading IRQs is a sound general-server default. Note: it overrides manual IRQ pins, so the per-NIC/per-controller masks below are advisory while it runs."
