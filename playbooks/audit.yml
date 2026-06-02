@@ -14,4 +14,4 @@
   gather_facts: true
   become: "{{ doctor_become | default(false) }}"
   roles:
-    - role: rachlenko.linux_aibolit.linux_doctor
+    - role: rachlenko.linux_aibolit.doctor

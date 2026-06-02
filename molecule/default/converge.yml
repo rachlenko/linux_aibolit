@@ -7,7 +7,7 @@
   tasks:
     - name: Run the audit with a system module set plus an opt-in component
       ansible.builtin.include_role:
-        name: rachlenko.linux_aibolit.linux_doctor
+        name: rachlenko.linux_aibolit.doctor
       vars:
         doctor_modules:
           - kernel

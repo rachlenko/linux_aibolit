@@ -30,7 +30,7 @@
 
 - name: Run the scalar engine over a catalog covering every rule type
   ansible.builtin.include_role:
-    name: rachlenko.linux_aibolit.linux_doctor
+    name: rachlenko.linux_aibolit.doctor
     tasks_from: engine_scalar.yml
   vars:
     module_catalog:

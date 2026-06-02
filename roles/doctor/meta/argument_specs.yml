@@ -30,7 +30,7 @@ argument_specs:
           - limits
         description:
           - System audit modules to run, in order. Each name must map to a
-            directory under C(roles/linux_doctor/modules/<name>/).
+            directory under C(roles/doctor/modules/<name>/).
 
       doctor_extra_modules:
         type: list

@@ -9,4 +9,4 @@
   #   ansible-playbook site.yml -e doctor_become=true -K
   become: "{{ doctor_become | default(false) }}"
   roles:
-    - linux_doctor
+    - doctor

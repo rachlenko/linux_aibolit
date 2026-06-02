@@ -12,7 +12,7 @@
 
 - name: Run with only the postgres opt-in module enabled
   ansible.builtin.include_role:
-    name: rachlenko.linux_aibolit.linux_doctor
+    name: rachlenko.linux_aibolit.doctor
   vars:
     doctor_modules: []
     doctor_extra_modules:

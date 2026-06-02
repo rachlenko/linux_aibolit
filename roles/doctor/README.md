@@ -1,4 +1,4 @@
-# linux_doctor
+# doctor
 
 Read-only Linux configuration audit ("Dr. Aibolit"). Part of the
 [`rachlenko.linux_aibolit`](https://galaxy.ansible.com/ui/repo/published/rachlenko/linux_aibolit/)
@@ -24,7 +24,7 @@ per host on the control node. **It never mutates the target.**
 ---
 - hosts: servers
   roles:
-    - role: rachlenko.linux_aibolit.linux_doctor
+    - role: rachlenko.linux_aibolit.doctor
       vars:
         doctor_extra_modules: [postgres]
 ```

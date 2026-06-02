@@ -1,5 +1,5 @@
 ---
-# Public interface under test: running the linux_doctor role end-to-end. It must
+# Public interface under test: running the doctor role end-to-end. It must
 # render exactly one HTML report per host on the control node, emit only valid
 # status rows, and validate its argument spec. Uses a minimal, fast module set.
 
@@ -12,7 +12,7 @@
 
 - name: Run the doctor (system modules only, minimal set)
   ansible.builtin.include_role:
-    name: rachlenko.linux_aibolit.linux_doctor
+    name: rachlenko.linux_aibolit.doctor
   vars:
     doctor_modules:
       - kernel
