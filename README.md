@@ -1,4 +1,5 @@
 # Dr. Aibolit for Linux — `rachlenko.linux_aibolit`
+<img width="906" height="515" alt="Снимок экрана — 2026-06-03 в 20 30 44" src="https://github.com/user-attachments/assets/bfd89ecc-cac0-4e07-bb5f-fd89a5c2cc9c" />
 
 [![CI](https://github.com/rachlenko/doctor-linux-aibolit/actions/workflows/ci.yml/badge.svg)](https://github.com/rachlenko/doctor-linux-aibolit/actions/workflows/ci.yml)
 [![Ansible Galaxy](https://img.shields.io/badge/galaxy-rachlenko.linux__aibolit-660198.svg)](https://galaxy.ansible.com/ui/repo/published/rachlenko/linux_aibolit/)
